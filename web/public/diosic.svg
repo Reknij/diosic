@@ -1,0 +1,9 @@
+<svg width="48" height="48" xmlns="http://www.w3.org/2000/svg">
+ <g id="Layer_1">
+  <title>Layer 1</title>
+  <ellipse ry="22" rx="22" id="svg_1" cy="24.3749" cx="24" stroke="#000" fill="#DDDDDD"/>
+  <ellipse ry="9.40623" rx="7.34373" id="svg_3" cy="19.96866" cx="17.59376" stroke="#000" fill="#fff"/>
+  <ellipse ry="6.87499" rx="7.24999" id="svg_4" cy="17.49991" cx="34.74998" stroke="#000" fill="#fff"/>
+  <text transform="matrix(1 0 0 0.534203 0 26.1481)" stroke="#000" xml:space="preserve" text-anchor="start" font-family="'Catamaran'" font-size="24" stroke-width="0" id="svg_6" y="23.76593" x="20.37501" fill="#000000">C</text>
+ </g>
+</svg>

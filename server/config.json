@@ -1,0 +1,9 @@
+{
+    "libraries": [
+        {
+            "title": "My Media",
+            "path": "C:\\Users\\Acer\\Desktop\\diosic_dev\\media"
+        }
+    ],
+    "storage_path": "C:\\Users\\Acer\\Desktop\\diosic_dev\\storage"
+}

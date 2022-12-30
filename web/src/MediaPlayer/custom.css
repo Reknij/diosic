@@ -1,0 +1,38 @@
+#aplayer {
+    display: none;
+}
+
+.aplayer {
+    background-color: #111111 !important;
+}
+
+.aplayer-body {
+    background-color: #111111 !important;
+}
+
+.aplayer-info {
+    border-top: none !important;
+}
+
+.aplayer-miniswitcher {
+    background-color: #3d3d3d !important;
+    border: 2px solid #111111;
+}
+
+.aplayer .aplayer-list ol li.aplayer-list-light {
+    background-color: #111111 !important;
+    color: gray;
+}
+
+.aplayer .aplayer-list ol li:hover {
+    background-color: #111111 !important;
+    color: gray;
+}
+
+.aplayer-title {
+    color: #ffffff;
+}
+
+.aplayer-author {
+    color: #bbbbbb !important;
+}
