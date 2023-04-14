@@ -14,7 +14,7 @@ let artists = ref<MediaSourceInfo[]>()
 let genres = ref<MediaSourceInfo[]>()
 let years = ref<MediaSourceInfo[]>()
 
-async function init() {
+async function getSourcesInfo() {
     libraries.value = await getLibraries();
     albums.value = await getAlbums();
     categories.value = await getCategories();
@@ -22,7 +22,7 @@ async function init() {
     genres.value = await getGenres();
     years.value = await getYears();
 }
-init();
+getSourcesInfo();
 
 let desktopMode = ref(window.innerWidth > window.innerHeight);
 window.onresize = (e) => {
@@ -71,4 +71,5 @@ export {
     years,
     desktopMode,
     tryGetCurrentSource,
+    getSourcesInfo
 }

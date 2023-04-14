@@ -4,7 +4,7 @@ import { inject, reactive, Ref } from 'vue'
 import { UserInfo } from '../models';
 import { login } from '../serverApi';
 import router from '../router';
-import { current_user } from './util';
+import { current_user, getSourcesInfo } from './util';
 import { ElMessage } from 'element-plus';
 
 let form = reactive({
@@ -26,6 +26,7 @@ async function loginClick() {
         Cookies.set('authorization', lu.token.toString(), {
             expires: 180,
         });
+        await getSourcesInfo()
         router.replace('/home')
     }
     catch (err: any) {

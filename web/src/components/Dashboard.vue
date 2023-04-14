@@ -49,7 +49,7 @@ async function scanLibrariesClick() {
     <el-tag size="large">
         Diosic Web Information
     </el-tag>
-    <h4>Version: 1.0</h4>
+    <h4>Version: 1.1</h4>
     <h4>Author: Jinker</h4>
     <el-divider></el-divider>
     <el-tag size="large">
