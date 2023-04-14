@@ -10,11 +10,12 @@ use tracing_subscriber::FmtSubscriber;
 
 mod config;
 mod db;
-mod library_sistem;
+mod library_system;
 mod metadata;
 mod myutil;
 mod server;
 mod user_system;
+mod plugin_system;
 
 #[tokio::main]
 async fn main() {
@@ -49,11 +50,14 @@ async fn main() {
     let users = user_system::UserSystem::new(db.clone())
         .await
         .expect("Initialize user system failed!");
-    let librarys = library_sistem::LibrarySystem::new(&config).await;
+    
+    let pluginsys = plugin_system::PluginSystem::new(&config).await;
+    let librarys = library_system::LibrarySystem::new(&config, &pluginsys).await;
 
     let s = server::ServerData {
         user_system: users,
-        library_sistem: librarys,
+        library_system: librarys,
+        plugin_system: pluginsys,
     };
     server::run(&config, s).await.expect("Run server error!");
 }
@@ -78,7 +82,7 @@ struct Args {
     port: u16,
 }
 
-fn to_libraries(title_with_paths: &Vec<String>) -> Vec<library_sistem::MediaLibrary> {
+fn to_libraries(title_with_paths: &Vec<String>) -> Vec<library_system::MediaLibrary> {
     let mut libraries = Vec::with_capacity(title_with_paths.len());
     let mut count_unknown = 1;
     let mut contain_names = HashSet::new();
@@ -94,7 +98,7 @@ fn to_libraries(title_with_paths: &Vec<String>) -> Vec<library_sistem::MediaLibr
             }
             else if path.is_dir() {
                 contain_names.insert(title.to_owned());
-                libraries.push(library_sistem::MediaLibrary { title, path });
+                libraries.push(library_system::MediaLibrary { title, path });
             }
             else {
                 warn!("Can't import library `{}` with path `{}` because it not directory.", title, path.to_str().unwrap())
@@ -110,7 +114,7 @@ fn to_libraries(title_with_paths: &Vec<String>) -> Vec<library_sistem::MediaLibr
             }
             else if path.is_dir() {
                 contain_names.insert(title.to_owned());
-                libraries.push(library_sistem::MediaLibrary {
+                libraries.push(library_system::MediaLibrary {
                     title,
                     path,
                 });

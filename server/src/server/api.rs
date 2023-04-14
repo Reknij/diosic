@@ -6,15 +6,17 @@ use actix_web::{
 };
 use tokio::{sync::RwLock, time::Instant};
 
-use crate::myutil::DiosicID;
+use crate::{myutil::DiosicID};
 
 use super::dto;
 use super::error::APIErrorType::*;
 use super::error::*;
 use super::from_requests::*;
 
-type LibSys = web::Data<RwLock<crate::library_sistem::LibrarySystem>>;
+type LibSys = web::Data<RwLock<crate::library_system::LibrarySystem>>;
 type UserSys = web::Data<crate::user_system::UserSystem>;
+type PlgSys = web::Data<crate::plugin_system::PluginSystem>;
+
 #[get("/require_setup")]
 pub async fn require_setup(user_system: UserSys) -> Json<bool> {
     Json(!user_system.have_user().await)
@@ -44,13 +46,13 @@ pub async fn setup(
 #[get("/media_file/{id}")]
 pub async fn get_media_file(
     info: web::Path<(DiosicID,)>,
-    library_sistem: LibSys,
+    library_system: LibSys,
     permission: UserPermission,
 ) -> Result<NamedFile, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
-    match library_sistem
+    match library_system
         .read()
         .await
         .get_media_file_by_id(&info.0)
@@ -66,14 +68,14 @@ pub async fn get_media_file(
 #[get("/media_cover/{id}")]
 pub async fn get_media_cover(
     info: web::Path<(DiosicID,)>,
-    library_sistem: LibSys,
+    library_system: LibSys,
     permission: UserPermission,
 ) -> Result<NamedFile, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
 
-    match library_sistem
+    match library_system
         .read()
         .await
         .get_media_cover_by_id(&info.0)
@@ -89,13 +91,13 @@ pub async fn get_media_cover(
 #[get("/media_info/{id}")]
 pub async fn get_media_info(
     info: web::Path<(DiosicID,)>,
-    library_sistem: LibSys,
+    library_system: LibSys,
     permission: UserPermission,
 ) -> Result<Json<dto::MediaInfo>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
-    match library_sistem
+    match library_system
         .read()
         .await
         .get_media_info_by_id(&info.0)
@@ -109,27 +111,19 @@ pub async fn get_media_info(
 #[get("/medias/search")]
 pub async fn search_media(
     query: web::Query<dto::SearchMediaQuery>,
-    library_sistem: LibSys,
+    library_system: LibSys,
     permission: UserPermission,
 ) -> Result<Json<dto::SearchResult<dto::MediaInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
-    let libsys_read = library_sistem.read().await;
-    let medias = libsys_read.get_medias_by_search(&query.content).await;
-    let index = query.index * query.limit;
-    let max = {
-        let max = index + query.limit;
-        if max > medias.len() {
-            medias.len()
-        } else {
-            max
-        }
-    };
-    let result: Vec<dto::MediaInfo> = medias[index..max]
-        .into_iter()
-        .map(|r| r.to_owned().into())
-        .collect();
+    let libsys_read = library_system.read().await;
+    let is_filter = query.source.is_some() && query.filter.is_some();
+    let source = query.source.clone().unwrap_or_else(||"".to_owned());
+    let filter = query.filter.clone().unwrap_or_else(||"".to_owned());
+    let medias = libsys_read.get_medias_by_search(&query.content, &source, &filter, is_filter, query.index, query.limit).await;
+    
+    let result: Vec<dto::MediaInfo> = medias.iter().map(|m|{dto::MediaInfo::from(m)}).collect();
     Ok(Json(dto::SearchResult {
         content: result,
         length: medias.len(),
@@ -137,47 +131,65 @@ pub async fn search_media(
 }
 
 #[get("/libraries")]
-pub async fn get_libraries(library_sistem: LibSys) -> Json<Vec<dto::MediaSourceInfo>> {
-    let libraries = library_sistem.read().await.get_libraries().await;
-    Json(libraries.into_iter().map(|m| m.into()).collect())
+pub async fn get_libraries(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoPermission).note("Please log in first!"));
+    }
+    let libraries = library_system.read().await.get_libraries().await;
+    Ok(Json(libraries.into_iter().map(|m| m.into()).collect()))
 }
 
 #[get("/albums")]
-pub async fn get_albums(library_sistem: LibSys) -> Json<Vec<dto::MediaSourceInfo>> {
-    let albums = library_sistem.read().await.get_albums().await;
-    Json(albums.into_iter().map(|m| m.into()).collect())
+pub async fn get_albums(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoPermission).note("Please log in first!"));
+    }
+    let albums = library_system.read().await.get_albums().await;
+    Ok(Json(albums.into_iter().map(|m| m.into()).collect()))
 }
 
 #[get("/categories")]
-pub async fn get_categories(library_sistem: LibSys) -> Json<Vec<dto::MediaSourceInfo>> {
-    let categories = library_sistem.read().await.get_categories().await;
-    Json(categories.into_iter().map(|m| m.into()).collect())
+pub async fn get_categories(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoPermission).note("Please log in first!"));
+    }
+    let categories = library_system.read().await.get_categories().await;
+    Ok(Json(categories.into_iter().map(|m| m.into()).collect()))
 }
 
 #[get("/artists")]
-pub async fn get_artists(library_sistem: LibSys) -> Json<Vec<dto::MediaSourceInfo>> {
-    let artists = library_sistem.read().await.get_artists().await;
-    Json(artists.into_iter().map(|m| m.into()).collect())
+pub async fn get_artists(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoPermission).note("Please log in first!"));
+    }
+    let artists = library_system.read().await.get_artists().await;
+    Ok(Json(artists.into_iter().map(|m| m.into()).collect()))
 }
 
 #[get("/genres")]
-pub async fn get_genres(library_sistem: LibSys) -> Json<Vec<dto::MediaSourceInfo>> {
-    let genres = library_sistem.read().await.get_genres().await;
-    Json(genres.into_iter().map(|m| m.into()).collect())
+pub async fn get_genres(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoPermission).note("Please log in first!"));
+    }
+    let genres = library_system.read().await.get_genres().await;
+    Ok(Json(genres.into_iter().map(|m| m.into()).collect()))
 }
 
 #[get("/years")]
-pub async fn get_years(library_sistem: LibSys) -> Json<Vec<dto::MediaSourceInfo>> {
-    let years = library_sistem.read().await.get_years().await;
-    Json(years.into_iter().map(|m| m.into()).collect())
+pub async fn get_years(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoPermission).note("Please log in first!"));
+    }
+    let years = library_system.read().await.get_years().await;
+    Ok(Json(years.into_iter().map(|m| m.into()).collect()))
 }
 
 #[get("/library_info")]
 pub async fn get_library_info(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetLibraryQuery>,
 ) -> Result<Json<dto::MediaSourceInfo>, APIError> {
-    match library_sistem.read().await.get_library(&query.title).await {
+    match library_system.read().await.get_library(&query.title).await {
         Some(v) => Ok(Json(v.into())),
         None => Err(APIError::with(NoFound).note("No found target library with title.")),
     }
@@ -185,10 +197,10 @@ pub async fn get_library_info(
 
 #[get("/album_info")]
 pub async fn get_album_info(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetAlbumQuery>,
 ) -> Result<Json<dto::MediaSourceInfo>, APIError> {
-    match library_sistem.read().await.get_album(&query.title).await {
+    match library_system.read().await.get_album(&query.title).await {
         Some(v) => Ok(Json(v.into())),
         None => Err(APIError::with(NoFound).note("No found target album with title.")),
     }
@@ -196,10 +208,10 @@ pub async fn get_album_info(
 
 #[get("/category_info")]
 pub async fn get_category_info(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetCategoryQuery>,
 ) -> Result<Json<dto::MediaSourceInfo>, APIError> {
-    match library_sistem.read().await.get_category(&query.title).await {
+    match library_system.read().await.get_category(&query.title).await {
         Some(v) => Ok(Json(v.into())),
         None => Err(APIError::with(NoFound).note("No found target category with title.")),
     }
@@ -207,10 +219,10 @@ pub async fn get_category_info(
 
 #[get("/artist_info")]
 pub async fn get_artist_info(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetCategoryQuery>,
 ) -> Result<Json<dto::MediaSourceInfo>, APIError> {
-    match library_sistem.read().await.get_artist(&query.title).await {
+    match library_system.read().await.get_artist(&query.title).await {
         Some(v) => Ok(Json(v.into())),
         None => Err(APIError::with(NoFound).note("No found target artist with title.")),
     }
@@ -218,10 +230,10 @@ pub async fn get_artist_info(
 
 #[get("/genre_info")]
 pub async fn get_genre_info(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetCategoryQuery>,
 ) -> Result<Json<dto::MediaSourceInfo>, APIError> {
-    match library_sistem.read().await.get_genre(&query.title).await {
+    match library_system.read().await.get_genre(&query.title).await {
         Some(v) => Ok(Json(v.into())),
         None => Err(APIError::with(NoFound).note("No found target genre with title.")),
     }
@@ -229,10 +241,10 @@ pub async fn get_genre_info(
 
 #[get("/year_info")]
 pub async fn get_year_info(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetCategoryQuery>,
 ) -> Result<Json<dto::MediaSourceInfo>, APIError> {
-    match library_sistem.read().await.get_year(&query.title).await {
+    match library_system.read().await.get_year(&query.title).await {
         Some(v) => Ok(Json(v.into())),
         None => Err(APIError::with(NoFound).note("No found target year with title.")),
     }
@@ -240,23 +252,15 @@ pub async fn get_year_info(
 
 #[get("/medias")]
 pub async fn get_medias(
-    library_sistem: LibSys,
+    library_system: LibSys,
     query: web::Query<dto::GetMediasQuery>,
     permission: UserPermission,
 ) -> Result<Json<Vec<dto::MediaInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
-    let libsys = library_sistem.read().await;
-    let medias = match query.source.as_str() {
-        "library" => libsys.get_medias_by_library(&query.filter).await,
-        "album" => libsys.get_medias_by_album(&query.filter).await,
-        "category" => libsys.get_medias_by_category(&query.filter).await,
-        "artist" => libsys.get_medias_by_artist(&query.filter).await,
-        "genre" => libsys.get_medias_by_genre(&query.filter).await,
-        "year" => libsys.get_medias_by_year(&query.filter).await,
-        _ => return Err(APIError::with(NoFound).note(format!("Unknown source `{}`", query.source))),
-    };
+    let libsys = library_system.read().await;
+    let medias = libsys.get_medias_by_source_with_filter(&query.source, &query.filter).await;
     match medias {
         Some(medias) => {
             if query.index >= medias.len().try_into().unwrap() {
@@ -475,15 +479,15 @@ pub async fn get_current_user(permission: UserPermission) -> Result<Json<dto::Us
 }
 
 #[get("/scan_libraries")]
-pub async fn scan_libraries(
+pub async fn scan_libraries<'a>(
     permission: UserPermission,
-    library_sistem: LibSys,
+    library_system: LibSys,
+    plugin_system: PlgSys,
 ) -> Result<HttpResponse, APIError> {
     if !permission.is_admin() {
         Err(APIError::with(NoPermission).note("Only administrator can operate"))
     } else {
-        library_sistem.write().await.scan().await;
-
+        library_system.write().await.scan(&plugin_system).await;
         Ok(HttpResponse::Ok().finish())
     }
 }

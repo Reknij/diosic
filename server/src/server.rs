@@ -4,13 +4,16 @@ use actix_cors::Cors;
 use actix_files::NamedFile;
 use actix_web::{
     web::{self},
-    App, HttpRequest, HttpServer, Error,
+    App, Error, HttpRequest, HttpServer,
 };
 use tokio::{sync::RwLock, time::Instant};
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
-use crate::{config::Config, library_sistem::LibrarySystem, user_system::UserSystem};
+use crate::{
+    config::Config, library_system::LibrarySystem, plugin_system::PluginSystem,
+    user_system::UserSystem,
+};
 
 mod api;
 mod dto;
@@ -19,20 +22,24 @@ mod from_requests;
 
 pub struct ServerData {
     pub user_system: UserSystem,
-    pub library_sistem: LibrarySystem,
+    pub library_system: LibrarySystem,
+    pub plugin_system: PluginSystem,
 }
 
 pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
     info!("Running server in {}:{}", &config.address, &config.port);
     let usersys = web::Data::new(s.user_system);
-    let libsys = web::Data::new(RwLock::new(s.library_sistem));
+    let libsys = web::Data::new(RwLock::new(s.library_system));
+    let plgsys = web::Data::new(s.plugin_system);
     let start = web::Data::new(Instant::now());
+
     HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
             .wrap(Cors::permissive())
             .app_data(usersys.clone())
             .app_data(libsys.clone())
+            .app_data(plgsys.clone())
             .app_data(start.clone())
             .service(
                 web::scope("api")
@@ -67,7 +74,11 @@ pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
                     .service(api::get_current_user)
                     .service(api::scan_libraries),
             )
-            .service(actix_files::Files::new("/", "./webpage").show_files_listing().index_file("index.html"))
+            .service(
+                actix_files::Files::new("/", "./webpage")
+                    .show_files_listing()
+                    .index_file("index.html"),
+            )
             .default_service(web::to(index))
     })
     .bind((config.address.to_owned(), config.port))?

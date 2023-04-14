@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use tokio::fs;
 use tracing::error;
 
-use crate::library_sistem::MediaLibrary;
+use crate::library_system::MediaLibrary;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {

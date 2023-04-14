@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{library_sistem, user_system, myutil::{self, DiosicID}};
+use crate::{library_system, user_system, myutil::{self, DiosicID}};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ServerInfo {
@@ -28,6 +28,12 @@ pub struct MediaInfo {
     pub library: String,
     pub cover: Option<String>,
     pub categories: Vec<String>,
+    pub simple_rate: Option<u32>,
+    pub bit_depth: Option<u8>,
+    pub audio_bitrate: Option<u32>,
+    pub overall_bitrate: Option<u32>,
+    pub channels: Option<u8>,
+    pub duration_milliseconds: u128,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -90,6 +96,8 @@ pub struct GetCategoryQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchMediaQuery {
     pub content: String,
+    pub source: Option<String>,
+    pub filter: Option<String>,
     pub index: usize,
     pub limit: usize,
 }
@@ -105,6 +113,11 @@ pub struct SearchUserQuery {
     pub content: String,
     pub index: usize,
     pub limit: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthQuery {
+    pub auth: DiosicID
 }
 
 impl ToSetup {
@@ -124,8 +137,8 @@ impl Into<user_system::UserInfo> for LoginQuery {
     }
 }
 
-impl From<library_sistem::MediaSourceInfo> for MediaSourceInfo {
-    fn from(m: library_sistem::MediaSourceInfo) -> Self {
+impl From<library_system::MediaSourceInfo> for MediaSourceInfo {
+    fn from(m: library_system::MediaSourceInfo) -> Self {
         Self {
             title: m.title,
             length: m.length,
@@ -155,9 +168,9 @@ impl Into<user_system::UserInfo> for UserInfo {
     }
 }
 
-impl<T> From<T> for MediaInfo where T: AsRef<library_sistem::MediaInfo> {
+impl<T> From<T> for MediaInfo where T: AsRef<library_system::MediaInfo> {
     fn from(m: T) -> Self {
-        let m: &library_sistem::MediaInfo = m.as_ref();
+        let m: &library_system::MediaInfo = m.as_ref();
         Self {
             id: m.id.clone(),
             title: m.title.clone(),
@@ -168,6 +181,12 @@ impl<T> From<T> for MediaInfo where T: AsRef<library_sistem::MediaInfo> {
             library: m.library.clone(),
             cover: m.cover.clone(),
             categories: m.categories.clone(),
+            simple_rate: m.simple_rate.clone(),
+            bit_depth: m.bit_depth.clone(),
+            audio_bitrate: m.audio_bitrate.clone(),
+            overall_bitrate: m.overall_bitrate.clone(),
+            channels: m.channels.clone(),
+            duration_milliseconds: m.duration_milliseconds.clone(),
         }
     }
 }

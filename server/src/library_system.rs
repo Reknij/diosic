@@ -5,12 +5,13 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 use walkdir::WalkDir;
 
 use crate::{
     config::Config,
     myutil::{self, DiosicID},
+    plugin_system::{self},
 };
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -25,6 +26,12 @@ pub struct MediaInfo {
     pub library: String,
     pub cover: Option<String>,
     pub categories: Vec<String>,
+    pub simple_rate: Option<u32>,
+    pub bit_depth: Option<u8>,
+    pub audio_bitrate: Option<u32>,
+    pub overall_bitrate: Option<u32>,
+    pub channels: Option<u8>,
+    pub duration_milliseconds: u128,
 }
 
 pub type ArcMediaInfo = Arc<MediaInfo>;
@@ -100,7 +107,7 @@ fn get_categories_from_directory(path: &PathBuf, lib: &MediaLibrary) -> Vec<Stri
 }
 
 impl LibrarySystem {
-    pub async fn new(config: &Config) -> LibrarySystem {
+    pub async fn new<'a>(config: &Config, plgsys: &plugin_system::PluginSystem) -> LibrarySystem {
         let mut libraries_info = HashMap::with_capacity(config.libraries.len());
         let mut albums_info = HashMap::new();
         let mut categories_info = HashMap::new();
@@ -120,7 +127,9 @@ impl LibrarySystem {
         let mut year_medias: HashMap<String, Vec<ArcMediaInfo>> = HashMap::new();
 
         let mut covers = HashMap::new();
-
+        if plgsys.exists_plugins() {
+            info!("Will process media info with plugins.");
+        }
         for lib in &config.libraries {
             let paths = &lib.fetch().await;
             let mut medias = Vec::with_capacity(paths.len());
@@ -132,31 +141,54 @@ impl LibrarySystem {
                 let cover = get_image_path_media(&m);
                 let categories = get_categories_from_directory(&m, &lib);
 
-                let info = ArcMediaInfo::new(MediaInfo {
-                    id: id.clone(),
-                    path: m.clone(),
-                    title: meta.title.clone(),
-                    library: lib.title.clone(),
-                    album: meta.album.clone(),
-                    artist: meta.artist.clone(),
-                    genre: meta.genre.clone(),
-                    year: meta.year.clone(),
-                    cover: match cover {
-                        Some(path) => {
-                            covers.insert(id.clone(), path);
-                            Some(format!("/api/media_cover/{}", id.as_str()))
-                        }
-                        None => {
-                            if let Some(path) = meta.cover {
+                let info = {
+                    let info = MediaInfo {
+                        id: id.clone(),
+                        path: m.clone(),
+                        title: meta.title.clone(),
+                        library: lib.title.clone(),
+                        album: meta.album.clone(),
+                        artist: meta.artist.clone(),
+                        genre: meta.genre.clone(),
+                        year: meta.year.clone(),
+                        simple_rate: meta.simple_rate,
+                        bit_depth: meta.bit_depth,
+                        audio_bitrate: meta.audio_bitrate,
+                        overall_bitrate: meta.overall_bitrate,
+                        channels: meta.channels,
+                        duration_milliseconds: meta.duration_milliseconds,
+                        cover: match cover {
+                            Some(path) => {
                                 covers.insert(id.clone(), path);
                                 Some(format!("/api/media_cover/{}", id.as_str()))
-                            } else {
-                                None
+                            }
+                            None => {
+                                if let Some(path) = meta.cover {
+                                    covers.insert(id.clone(), path);
+                                    Some(format!("/api/media_cover/{}", id.as_str()))
+                                } else {
+                                    None
+                                }
+                            }
+                        },
+                        categories: categories.clone(),
+                    };
+                    if !plgsys.exists_plugins() {
+                        ArcMediaInfo::new(info)
+                    } else {
+                        let mut json = serde_json::to_string(&info).unwrap();
+                        plgsys
+                            .process_media_info_json(m.to_str().unwrap(), &mut json)
+                            .await;
+                        match serde_json::from_str(&json) {
+                            Ok(v) => ArcMediaInfo::new(v),
+                            Err(err) => {
+                                warn!("failed to parse media info json: {}", err);
+                                ArcMediaInfo::new(info)
                             }
                         }
-                    },
-                    categories: categories.clone(),
-                });
+                    }
+                };
 
                 for category in &categories {
                     let categories = category_medias.get_mut(category);
@@ -305,9 +337,9 @@ impl LibrarySystem {
         &self.last_access_config
     }
 
-    pub async fn scan(&mut self) {
+    pub async fn scan<'a>(&mut self, plgsys: &plugin_system::PluginSystem) {
         info!("Scanning all library..");
-        let newed = LibrarySystem::new(self.get_last_access_config()).await;
+        let newed = LibrarySystem::new(&self.get_last_access_config(), plgsys).await;
         *self = newed;
     }
 
@@ -359,35 +391,32 @@ impl LibrarySystem {
         self.years_info.get(title).map(|o| o.clone())
     }
 
-    pub async fn get_medias_by_library<'a>(&'a self, title: &'a str) -> Option<&Vec<ArcMediaInfo>> {
+    pub async fn get_medias_by_library(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
         let values = self.lib_medias.get(title)?;
         Some(values)
     }
 
-    pub async fn get_medias_by_album<'a>(&'a self, title: &'a str) -> Option<&Vec<ArcMediaInfo>> {
+    pub async fn get_medias_by_album(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
         let values = self.album_medias.get(title)?;
         Some(values)
     }
 
-    pub async fn get_medias_by_category<'a>(
-        &'a self,
-        title: &'a str,
-    ) -> Option<&Vec<ArcMediaInfo>> {
+    pub async fn get_medias_by_category(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
         let values = self.category_medias.get(title)?;
         Some(values)
     }
 
-    pub async fn get_medias_by_artist<'a>(&'a self, title: &'a str) -> Option<&Vec<ArcMediaInfo>> {
+    pub async fn get_medias_by_artist(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
         let values = self.artist_medias.get(title)?;
         Some(values)
     }
 
-    pub async fn get_medias_by_genre<'a>(&'a self, title: &'a str) -> Option<&Vec<ArcMediaInfo>> {
+    pub async fn get_medias_by_genre(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
         let values = self.genre_medias.get(title)?;
         Some(values)
     }
 
-    pub async fn get_medias_by_year<'a>(&'a self, title: &'a str) -> Option<&Vec<ArcMediaInfo>> {
+    pub async fn get_medias_by_year(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
         let values = self.year_medias.get(title)?;
         Some(values)
     }
@@ -399,23 +428,82 @@ impl LibrarySystem {
         }
     }
 
-    pub async fn get_media_cover_by_id<'a>(&'a self, id: &'a DiosicID) -> Option<&PathBuf> {
+    pub async fn get_media_cover_by_id(&self, id: &DiosicID) -> Option<&PathBuf> {
         self.covers.get(&id)
     }
 
-    pub async fn get_media_info_by_id<'a>(&'a self, id: &'a DiosicID) -> Option<&ArcMediaInfo> {
-        self.medias_info.get(&id)
+    pub async fn get_media_info_by_id(&self, id: &DiosicID) -> Option<ArcMediaInfo> {
+        if let Some(m) = self.medias_info.get(&id) {
+            Some(m.clone())
+        } else {
+            None
+        }
     }
 
-    pub async fn get_medias_by_search<'a>(&'a self, search: &'a str) -> Vec<&ArcMediaInfo> {
+    pub async fn get_medias_by_search(
+        &self,
+        search: &str,
+        source: &str,
+        filter: &str,
+        is_filter: bool,
+        index: usize,
+        limit: usize,
+    ) -> Vec<ArcMediaInfo> {
+        let empty: Vec<ArcMediaInfo> = Vec::new();
+
+        let all_media: Vec<ArcMediaInfo>;
+        let medias: &Vec<ArcMediaInfo> = if is_filter {
+            self.get_medias_by_source_with_filter(source, filter)
+                .await
+                .unwrap_or(&empty)
+        } else {
+            all_media = self.medias_info.values().map(|m| m.clone()).collect();
+            &all_media
+        };
+        self.search_medias_core(medias, search, index, limit).await
+    }
+
+    async fn search_medias_core(
+        &self,
+        medias: &Vec<ArcMediaInfo>,
+        search: &str,
+        index: usize,
+        limit: usize,
+    ) -> Vec<Arc<MediaInfo>> {
         let mut result = Vec::new();
-        for (_, m) in &self.medias_info {
+
+        let index = index * limit;
+        let max = {
+            let max = index + limit;
+            if max > medias.len() {
+                medias.len()
+            } else {
+                max
+            }
+        };
+
+        for m in &medias[index..max] {
             if m.contains(search) {
-                result.push(m);
+                result.push(m.clone());
             }
         }
-
         result
+    }
+
+    pub async fn get_medias_by_source_with_filter(
+        &self,
+        source: &str,
+        filter: &str,
+    ) -> Option<&Vec<ArcMediaInfo>> {
+        match source {
+            "library" => self.get_medias_by_library(filter).await,
+            "album" => self.get_medias_by_album(filter).await,
+            "category" => self.get_medias_by_category(filter).await,
+            "artist" => self.get_medias_by_artist(filter).await,
+            "genre" => self.get_medias_by_genre(filter).await,
+            "year" => self.get_medias_by_year(filter).await,
+            _ => return None,
+        }
     }
 }
 

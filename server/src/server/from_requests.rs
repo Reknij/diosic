@@ -3,9 +3,12 @@ use std::{future::Future, pin::Pin};
 use actix_web::{dev::Payload, web, FromRequest, HttpRequest};
 use futures_util::future::ok;
 
-use crate::{user_system::{UserSystem}, myutil::DiosicID};
+use crate::{myutil::DiosicID, user_system::UserSystem};
 
-use super::{dto, error::{APIError, APIErrorType}};
+use super::{
+    dto,
+    error::{APIError, APIErrorType},
+};
 
 #[derive(Debug, Clone)]
 pub struct UserPermission {
@@ -24,8 +27,7 @@ impl UserPermission {
     pub fn have_permission_with(&self, username: &str) -> bool {
         if self.is_admin() {
             true
-        }
-        else if let Some(owner) = &self.owner {
+        } else if let Some(owner) = &self.owner {
             owner.username == username
         } else {
             false
@@ -34,8 +36,8 @@ impl UserPermission {
 
     pub fn get_owner(&self) -> Result<dto::UserInfo, APIError> {
         match &self.owner {
-            Some(owner)=> Ok(owner.clone()),
-            None=> Err(APIError::with(APIErrorType::NoPermission).note("User is not logging!"))
+            Some(owner) => Ok(owner.clone()),
+            None => Err(APIError::with(APIErrorType::NoPermission).note("User is not logging!")),
         }
     }
 
@@ -49,18 +51,26 @@ impl FromRequest for UserPermission {
     type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
 
     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-        let auth = req.cookie("authorization");
-        
-        match auth {
-            Some(auth) => {
-                let user_system = req.app_data::<web::Data<UserSystem>>().unwrap().clone();
-                let id: DiosicID = auth.value().parse::<String>().unwrap().into();
-                Box::pin(async move {
-                    let owner = user_system.verify(&id).await.map(|u| u.into());
-                    Ok(UserPermission { owner })
-                })
+        let user_system = req.app_data::<web::Data<UserSystem>>().unwrap().clone();
+
+        let auth_query = web::Query::<dto::AuthQuery>::from_query(req.query_string());
+        if let Ok(q) = auth_query {
+            Box::pin(async move {
+                let owner = user_system.verify(&q.auth).await.map(|u| u.into());
+                Ok(UserPermission { owner })
+            })
+        } else {
+            let auth = req.cookie("authorization");
+            match auth {
+                Some(auth) => {
+                    let id: DiosicID = auth.value().parse::<String>().unwrap().into();
+                    Box::pin(async move {
+                        let owner = user_system.verify(&id).await.map(|u| u.into());
+                        Ok(UserPermission { owner })
+                    })
+                }
+                None => Box::pin(ok(UserPermission { owner: None })),
             }
-            None => Box::pin(ok(UserPermission { owner: None })),
         }
     }
 }
