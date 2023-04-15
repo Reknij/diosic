@@ -1,4 +1,8 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    ffi::{CStr, CString},
+    fmt::Debug,
+    sync::Arc,
+};
 
 use crate::config::Config;
 use tokio::{fs, sync::Mutex};
@@ -75,7 +79,8 @@ impl PluginSystem {
                                 let cpt = Module::new(&engine, &bytes);
                                 match cpt {
                                     Ok(cpt) => {
-                                        let instance = linker.instantiate_async(&mut store, &cpt).await;
+                                        let instance =
+                                            linker.instantiate_async(&mut store, &cpt).await;
                                         match instance {
                                             Ok(i) => {
                                                 instances.push(i);
@@ -112,34 +117,35 @@ impl PluginSystem {
         self.instances.len() > 0
     }
 
-    pub async fn process_media_info_json(&self, _media_path: &str, media_info: &mut String) {
+    pub async fn process_media_info_json(&self, media_path: &str, media_info: &mut String) {
+        let mut cmedia_info = CString::new(media_info.to_owned()).unwrap();
         for i in &self.instances {
             let mut store = &mut *self.store.lock().await;
-            let func = i
-                .get_typed_func::<(u32, u32), (u32,)>(&mut store, PROCESS_MEDIA_INFO_JSON_FUNCTION);
+            let func =
+                i.get_typed_func::<(u32, u32), (u32,)>(&mut store, PROCESS_MEDIA_INFO_JSON_FUNCTION);
             let memory = i.get_memory(&mut store, "memory");
             match memory {
                 Some(memory) => match func {
                     Ok(f) => {
                         let offset = 0;
-                        memory.write(&mut *store, offset, media_info.as_bytes()).unwrap();
-                    
-                        let result = f.call_async(&mut store, (offset as _, media_info.len() as _)).await;
+                        let bytes = cmedia_info.as_bytes_with_nul();
+                        memory
+                            .write(&mut *store, offset, bytes)
+                            .unwrap();
+                        let offset2 = offset + bytes.len();
+                        memory
+                            .write(&mut *store, offset2, media_path.as_bytes())
+                            .unwrap();
+                        let result = f.call_async(&mut store, (offset as _, (offset2) as _)).await;
                         match result {
-                            Ok((len,)) => {
-                                if len > 0 {
-                                    let mut buffer = vec![0u8; len as _];
-                                    memory.read(&mut store, offset as _, &mut buffer).unwrap();
-                                    let modified = String::from_utf8(buffer);
-                                    match modified {
-                                        Ok(modified) => {
-                                            *media_info = modified;
-                                        }
-                                        Err(err) => {
-                                            error!("Can't parse string from buffer: {}", err)
-                                        }
-                                    }
-                                }
+                            Ok((ptr,)) => {
+                                let modified_ptr = unsafe {
+                                    memory.data_ptr(&mut store).add(ptr as _)
+                                };
+                                let modified = unsafe {
+                                    CStr::from_ptr(modified_ptr as _)
+                                };
+                                cmedia_info = modified.to_owned();
                             }
                             Err(err) => error!("{}", err),
                         }
@@ -151,5 +157,6 @@ impl PluginSystem {
                 }
             }
         }
+        *media_info = cmedia_info.to_str().unwrap().to_string();
     }
 }
