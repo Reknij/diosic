@@ -15,7 +15,7 @@ const PROCESS_MEDIA_INFO_JSON_FUNCTION: &str = "process_media_info_json";
 
 #[derive(Clone)]
 pub struct PluginSystem {
-    last_access_config: Config,
+    last_access_config: Arc<Config>,
     _engine: Engine,
     store: Arc<Mutex<Store<WasiCtx>>>,
     instances: Vec<Instance>,
@@ -31,7 +31,7 @@ impl Debug for PluginSystem {
 }
 
 impl PluginSystem {
-    pub async fn new(config: &Config) -> Self {
+    pub async fn new(config: Arc<Config>) -> Self {
         let mut wt_config = wasmtime::Config::default();
         wt_config.async_support(true);
         let engine = Engine::new(&wt_config).unwrap();

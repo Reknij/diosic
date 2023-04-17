@@ -24,7 +24,6 @@ async fn main() {
     #[cfg(debug_assertions)]
     {
         std::env::set_var("RUST_LOG", "actix_web=debug");
-        std::env::set_var("RUST_LOG", "actix_web=info");
     }
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::DEBUG)
@@ -32,7 +31,7 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).unwrap();
     tracing::info!("Starting tracing!");
 
-    let config = if let Some(config_path) = args.config {
+    let config = Arc::new(if let Some(config_path) = args.config {
         config::Config::load_from_path(&config_path)
             .await
             .expect("Load config failed!")
@@ -43,21 +42,22 @@ async fn main() {
             address: args.address,
             port: args.port,
         }
-    };
+    });
     let db = Arc::new(Mutex::new(
         db::init(&config).expect("Initialize database failed!"),
     ));
-    let users = user_system::UserSystem::new(db.clone())
+    let setup_config_helper = Arc::new(config::SetupConfigHelper::new(config.clone()).await);
+    let users = user_system::UserSystem::new(db.clone(), setup_config_helper.clone())
         .await
         .expect("Initialize user system failed!");
-    
-    let pluginsys = plugin_system::PluginSystem::new(&config).await;
-    let librarys = library_system::LibrarySystem::new(&config, &pluginsys).await;
+    let pluginsys = plugin_system::PluginSystem::new(config.clone()).await;
+    let librarys = library_system::LibrarySystem::new(config.clone(), &pluginsys).await;
 
     let s = server::ServerData {
         user_system: users,
         library_system: librarys,
         plugin_system: pluginsys,
+        setup_config_helper
     };
     server::run(&config, s).await.expect("Run server error!");
 }

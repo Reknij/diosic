@@ -69,7 +69,7 @@ pub struct LibrarySystem {
 
     covers: HashMap<DiosicID, PathBuf>,
 
-    last_access_config: Config,
+    last_access_config: Arc<Config>,
 }
 
 impl MediaLibrary {
@@ -107,7 +107,7 @@ fn get_categories_from_directory(path: &PathBuf, lib: &MediaLibrary) -> Vec<Stri
 }
 
 impl LibrarySystem {
-    pub async fn new<'a>(config: &Config, plgsys: &plugin_system::PluginSystem) -> LibrarySystem {
+    pub async fn new<'a>(config: Arc<Config>, plgsys: &plugin_system::PluginSystem) -> LibrarySystem {
         let mut libraries_info = HashMap::with_capacity(config.libraries.len());
         let mut albums_info = HashMap::new();
         let mut categories_info = HashMap::new();
@@ -333,13 +333,9 @@ impl LibrarySystem {
         }
     }
 
-    pub fn get_last_access_config(&self) -> &Config {
-        &self.last_access_config
-    }
-
     pub async fn scan<'a>(&mut self, plgsys: &plugin_system::PluginSystem) {
         info!("Scanning all library..");
-        let newed = LibrarySystem::new(&self.get_last_access_config(), plgsys).await;
+        let newed = LibrarySystem::new(self.last_access_config.clone(), plgsys).await;
         *self = newed;
     }
 

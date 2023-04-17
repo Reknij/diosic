@@ -9,6 +9,13 @@ pub struct ServerInfo {
     pub time_running: u64,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct SetupInfo {
+    pub admin_required: bool,
+    pub guest_enable: bool,
+    pub guest_password_required: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserInfo {
     pub username: String,
@@ -76,6 +83,8 @@ pub struct LoginUser {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToSetup {
     pub admin: UserInfo,
+    pub guest_enable: bool,
+    pub guest_password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,6 +132,11 @@ pub struct AuthQuery {
 impl ToSetup {
     pub fn process(&mut self) {
         self.admin.is_admin = true;
+        if let Some(pass) = &self.guest_password {
+            if pass.is_empty() {
+                self.guest_password = None;
+            }
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use actix_cors::Cors;
 use actix_files::NamedFile;
@@ -11,7 +11,7 @@ use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 use crate::{
-    config::Config, library_system::LibrarySystem, plugin_system::PluginSystem,
+    config::{Config, SetupConfigHelper}, library_system::LibrarySystem, plugin_system::PluginSystem,
     user_system::UserSystem,
 };
 
@@ -24,6 +24,7 @@ pub struct ServerData {
     pub user_system: UserSystem,
     pub library_system: LibrarySystem,
     pub plugin_system: PluginSystem,
+    pub setup_config_helper: Arc<SetupConfigHelper>
 }
 
 pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
@@ -32,6 +33,7 @@ pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
     let libsys = web::Data::new(RwLock::new(s.library_system));
     let plgsys = web::Data::new(s.plugin_system);
     let start = web::Data::new(Instant::now());
+    let setup = web::Data::new(s.setup_config_helper);
 
     HttpServer::new(move || {
         App::new()
@@ -41,10 +43,11 @@ pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
             .app_data(libsys.clone())
             .app_data(plgsys.clone())
             .app_data(start.clone())
+            .app_data(setup.clone())
             .service(
                 web::scope("api")
                     .service(api::get_server_info)
-                    .service(api::require_setup)
+                    .service(api::setup_info)
                     .service(api::setup)
                     .service(api::get_media_file)
                     .service(api::get_media_cover)

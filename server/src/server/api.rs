@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use actix_files::NamedFile;
 use actix_web::{
     delete, get, post, put,
@@ -5,8 +7,9 @@ use actix_web::{
     HttpResponse,
 };
 use tokio::{sync::RwLock, time::Instant};
+use tracing::error;
 
-use crate::{myutil::DiosicID};
+use crate::myutil::DiosicID;
 
 use super::dto;
 use super::error::APIErrorType::*;
@@ -16,30 +19,62 @@ use super::from_requests::*;
 type LibSys = web::Data<RwLock<crate::library_system::LibrarySystem>>;
 type UserSys = web::Data<crate::user_system::UserSystem>;
 type PlgSys = web::Data<crate::plugin_system::PluginSystem>;
+type SCHelper = web::Data<Arc<crate::config::SetupConfigHelper>>;
 
-#[get("/require_setup")]
-pub async fn require_setup(user_system: UserSys) -> Json<bool> {
-    Json(!user_system.have_user().await)
+#[get("/setup_info")]
+pub async fn setup_info(user_system: UserSys, schelper: SCHelper) -> Json<dto::SetupInfo> {
+    let c = schelper.setup_config().await;
+    Json(dto::SetupInfo {
+        admin_required: !user_system.have_user().await,
+        guest_enable: c.guest_enable,
+        guest_password_required: c.guest_password.is_some(),
+    })
 }
 
 #[post("/setup")]
 pub async fn setup(
     user_system: UserSys,
     setup: Json<dto::ToSetup>,
+    permission: UserPermission,
 ) -> Result<HttpResponse, APIError> {
     let mut setup = setup.0.clone();
-    if user_system.have_user().await {
-        Err(APIError::with(Unspecified).note("Already setup!"))
-    } else {
+    let setup_fn = || async {
         setup.process();
+        if setup.guest_enable {
+            if let Some(pass) = &setup.guest_password {
+                if pass.len() < 8 {
+                    return Err(
+                        APIError::with(Unexpected).note("Password length must more than 8.")
+                    );
+                }
+            }
+        }
         user_system
             .create_user(&setup.admin.into())
             .await
             .map_err(|err| {
                 APIError::with(Unexpected).note(format!("Create user error: {}", err.to_string()))
             })?;
-
+        user_system
+            .guest_enable(setup.guest_enable, setup.guest_password)
+            .await;
         Ok(HttpResponse::Ok().finish())
+    };
+    if user_system.have_user().await {
+        if permission.is_admin() {
+            match user_system
+                .delete_user(&permission.get_owner().unwrap().username)
+                .await
+            {
+                Ok(_) => (),
+                Err(err) => error!("can't delete current admin: {}", err),
+            };
+            setup_fn().await
+        } else {
+            Err(APIError::with(NoPermission).note("Only admin can setup again."))
+        }
+    } else {
+        setup_fn().await
     }
 }
 
@@ -119,11 +154,20 @@ pub async fn search_media(
     }
     let libsys_read = library_system.read().await;
     let is_filter = query.source.is_some() && query.filter.is_some();
-    let source = query.source.clone().unwrap_or_else(||"".to_owned());
-    let filter = query.filter.clone().unwrap_or_else(||"".to_owned());
-    let medias = libsys_read.get_medias_by_search(&query.content, &source, &filter, is_filter, query.index, query.limit).await;
-    
-    let result: Vec<dto::MediaInfo> = medias.iter().map(|m|{dto::MediaInfo::from(m)}).collect();
+    let source = query.source.clone().unwrap_or_else(|| "".to_owned());
+    let filter = query.filter.clone().unwrap_or_else(|| "".to_owned());
+    let medias = libsys_read
+        .get_medias_by_search(
+            &query.content,
+            &source,
+            &filter,
+            is_filter,
+            query.index,
+            query.limit,
+        )
+        .await;
+
+    let result: Vec<dto::MediaInfo> = medias.iter().map(|m| dto::MediaInfo::from(m)).collect();
     Ok(Json(dto::SearchResult {
         content: result,
         length: medias.len(),
@@ -131,7 +175,10 @@ pub async fn search_media(
 }
 
 #[get("/libraries")]
-pub async fn get_libraries(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+pub async fn get_libraries(
+    library_system: LibSys,
+    permission: UserPermission,
+) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -140,7 +187,10 @@ pub async fn get_libraries(library_system: LibSys, permission: UserPermission) -
 }
 
 #[get("/albums")]
-pub async fn get_albums(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+pub async fn get_albums(
+    library_system: LibSys,
+    permission: UserPermission,
+) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -149,7 +199,10 @@ pub async fn get_albums(library_system: LibSys, permission: UserPermission) -> R
 }
 
 #[get("/categories")]
-pub async fn get_categories(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+pub async fn get_categories(
+    library_system: LibSys,
+    permission: UserPermission,
+) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -158,7 +211,10 @@ pub async fn get_categories(library_system: LibSys, permission: UserPermission) 
 }
 
 #[get("/artists")]
-pub async fn get_artists(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+pub async fn get_artists(
+    library_system: LibSys,
+    permission: UserPermission,
+) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -167,7 +223,10 @@ pub async fn get_artists(library_system: LibSys, permission: UserPermission) -> 
 }
 
 #[get("/genres")]
-pub async fn get_genres(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+pub async fn get_genres(
+    library_system: LibSys,
+    permission: UserPermission,
+) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -176,7 +235,10 @@ pub async fn get_genres(library_system: LibSys, permission: UserPermission) -> R
 }
 
 #[get("/years")]
-pub async fn get_years(library_system: LibSys, permission: UserPermission) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
+pub async fn get_years(
+    library_system: LibSys,
+    permission: UserPermission,
+) -> Result<Json<Vec<dto::MediaSourceInfo>>, APIError> {
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -260,7 +322,9 @@ pub async fn get_medias(
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
     let libsys = library_system.read().await;
-    let medias = libsys.get_medias_by_source_with_filter(&query.source, &query.filter).await;
+    let medias = libsys
+        .get_medias_by_source_with_filter(&query.source, &query.filter)
+        .await;
     match medias {
         Some(medias) => {
             if query.index >= medias.len().try_into().unwrap() {
@@ -385,6 +449,10 @@ pub async fn update_user(
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
 
+    if permission.is_guest() {
+        return Err(APIError::with(NoPermission).note("Guest can't update information."));
+    }
+
     let user = permission.get_owner()?;
     if user_system.exists_user(&user.username).await {
         if permission.have_permission_with(&user.username) {
@@ -392,7 +460,13 @@ pub async fn update_user(
                 .update_user(&user.into(), to_update.0.into())
                 .await
             {
-                Ok(()) => Ok(HttpResponse::Ok().finish()),
+                Ok(success) => {
+                    if success {
+                        Ok(HttpResponse::Ok().finish())
+                    } else {
+                        Err(APIError::with(Unspecified).note("No found user to update."))
+                    }
+                }
                 Err(err) => Err(APIError::with(Unexpected).note(err.to_string())),
             }
         } else {
@@ -409,6 +483,10 @@ pub async fn create_user(
     user_system: UserSys,
     to_create: Json<dto::UserInfo>,
 ) -> Result<HttpResponse, APIError> {
+    if !permission.exists_owner() {
+        return Err(APIError::with(NoFoundUser).note("Please login first."));
+    }
+
     if user_system.have_user().await {
         if to_create.is_admin {
             return Err(APIError::with(NoPermission).note("Admin user only can create in setup."));
@@ -433,6 +511,10 @@ pub async fn create_user(
         return Err(APIError::with(Unexpected).note(
             "Found illegal characters in username or password. Ensure it is legal characters.",
         ));
+    }
+
+    if to_create.username == "guest" {
+        return Err(APIError::with(Unexpected).note("Username can't same with `guest`."));
     }
 
     if !user_system.exists_user(&to_create.username).await {
@@ -485,7 +567,7 @@ pub async fn scan_libraries<'a>(
     plugin_system: PlgSys,
 ) -> Result<HttpResponse, APIError> {
     if !permission.is_admin() {
-        Err(APIError::with(NoPermission).note("Only administrator can operate"))
+        Err(APIError::with(NoPermission).note("Only administrator can operate."))
     } else {
         library_system.write().await.scan(&plugin_system).await;
         Ok(HttpResponse::Ok().finish())
@@ -493,10 +575,17 @@ pub async fn scan_libraries<'a>(
 }
 
 #[get("/info")]
-pub async fn get_server_info(start: web::Data<Instant>) -> Result<Json<dto::ServerInfo>, APIError> {
-    Ok(Json(dto::ServerInfo {
-        author: "Jinker",
-        version: env!("CARGO_PKG_VERSION"),
-        time_running: start.elapsed().as_secs(),
-    }))
+pub async fn get_server_info(
+    permission: UserPermission,
+    start: web::Data<Instant>,
+) -> Result<Json<dto::ServerInfo>, APIError> {
+    if !permission.is_admin() {
+        Err(APIError::with(NoPermission).note("Only administrator can visit."))
+    } else {
+        Ok(Json(dto::ServerInfo {
+            author: "Jinker",
+            version: env!("CARGO_PKG_VERSION"),
+            time_running: start.elapsed().as_secs(),
+        }))
+    }
 }

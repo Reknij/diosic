@@ -44,6 +44,10 @@ impl UserPermission {
     pub fn exists_owner(&self) -> bool {
         self.owner.is_some()
     }
+
+    pub fn is_guest(&self)-> bool {
+        self.exists_owner() && self.owner.as_ref().unwrap().username == "guest"
+    }
 }
 
 impl FromRequest for UserPermission {
