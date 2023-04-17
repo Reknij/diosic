@@ -1,8 +1,9 @@
 import { ref } from "vue";
-import { MediaSourceInfo, MediaInfo, UserInfo } from "../models";
+import { MediaSourceInfo, MediaInfo, UserInfo, SetupInfo } from "../models";
 import { getAlbumInfo, getAlbums, getArtistInfo, getArtists, getCategories, getCategoryInfo, getGenreInfo, getGenres, getLibraries, getLibraryInfo, getYearInfo, getYears } from "../serverApi";
 
 let current_user = ref<UserInfo>();
+let setup_info = ref<SetupInfo>();
 
 let current_media = ref<MediaInfo>()
 let current_source = ref<MediaSourceInfo>()
@@ -61,6 +62,7 @@ async function tryGetCurrentSource(query: any) {
 }
 export {
     current_user,
+    setup_info,
     current_media,
     current_source,
     libraries,

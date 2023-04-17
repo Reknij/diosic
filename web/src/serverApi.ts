@@ -1,5 +1,5 @@
 import axios, { Axios } from "axios";
-import { LoginUser, MediaInfo, MediaSourceInfo, SearchResult, ServerInfo, ToSetup, UserInfo } from "./models";
+import { LoginUser, MediaInfo, MediaSourceInfo, SearchResult, ServerInfo, SetupInfo, ToSetup, UserInfo } from "./models";
 import { api } from "./request";
 
 let cancelObj: any = {};
@@ -147,6 +147,14 @@ export async function searchMedia(toSearch: string, index: number, limit: number
     return r.data;
 }
 
+export async function searchMediaFilter(toSearch: string, index: number, limit: number, source: string, filter: string, identity: string | Function | undefined = undefined): Promise<SearchResult<MediaInfo>> {
+    if (identity) cancelRequest(searchMedia, identity);
+    let r = await api.get<SearchResult<MediaInfo>>(`/medias/search?content=${toSearch}&index=${index}&limit=${limit}&source=${source}&filter=${filter}`, {
+        cancelToken: setCancelToken(searchMedia, identity)
+    });
+    return r.data;
+}
+
 export async function getUser(username: string, identity: string | Function | undefined = undefined): Promise<UserInfo> {
     if (identity) cancelRequest(getUser, identity);
     let r = await api.get<UserInfo>(`/user/${username}`, {
@@ -220,10 +228,10 @@ export async function setup(to_setup: ToSetup, identity: string | Function | und
     });
 }
 
-export async function requireSetup(identity: string | Function | undefined = undefined): Promise<boolean> {
-    if (identity) cancelRequest(requireSetup, identity);
-    return (await api.get('/require_setup', {
-        cancelToken: setCancelToken(requireSetup, identity)
+export async function getSetupInfo(identity: string | Function | undefined = undefined): Promise<SetupInfo> {
+    if (identity) cancelRequest(getSetupInfo, identity);
+    return (await api.get('/setup_info', {
+        cancelToken: setCancelToken(getSetupInfo, identity)
     })).data;
 }
 

@@ -2,23 +2,27 @@
 import { ElMessage } from "element-plus";
 import Cookies from "js-cookie";
 import { ref } from "vue";
-import { UserInfo } from "../models";
+import { UserInfo, ToSetup } from "../models";
 import router from "../router";
-import { createUser, login } from "../serverApi";
+import { setup, login } from "../serverApi";
 import { current_user } from "./util";
 
-let toCreate = ref<UserInfo>({
-    username: 'admin',
-    password: '12345678',
-    alias: 'Admin',
-    is_admin: true
+let toSetup = ref<ToSetup>({
+    admin: {
+        username: 'admin',
+        password: '12345678',
+        alias: 'Admin',
+        is_admin: true
+    },
+    guest_enable: false,
+    guest_password: undefined,
 })
 let now = ref('Admin account')
-async function register() {
+async function setupAll() {
     try {
-        if (!toCreate.value.password) return;
-        await createUser(toCreate.value);
-        let logined = await login(toCreate.value.username, toCreate.value.password);
+        if (!toSetup.value.admin.password) return;
+        await setup(toSetup.value);
+        let logined = await login(toSetup.value.admin.username, toSetup.value.admin.password);
         if (logined) {
             current_user.value = logined.current;
             Cookies.set('authorization', logined.token);
@@ -35,27 +39,31 @@ async function register() {
 
 <template>
     <el-row align="middle" justify="center" style="min-height: 100vh; margin-left: 10px; margin-right: 10px;">
-        <el-form id="setupForm" v-model="toCreate" @keyup.enter="register">
+        <el-form id="setupForm" v-model="toSetup" @keyup.enter="setupAll">
             <el-row justify="center">
                 <el-avatar :size="256" src="/diosic.svg"></el-avatar>
             </el-row>
             <h1>Diosic Setup - {{ now }}</h1>
             <el-form-item label="Alias">
-                <el-input v-model="toCreate.alias"></el-input>
+                <el-input v-model="toSetup.admin.alias"></el-input>
             </el-form-item>
             <el-form-item label="Username">
-                <el-input v-model="toCreate.username"></el-input>
+                <el-input v-model="toSetup.admin.username"></el-input>
             </el-form-item>
             <el-form-item label="Password">
-                <el-input show-password v-model="toCreate.password"></el-input>
+                <el-input show-password v-model="toSetup.admin.password"></el-input>
+            </el-form-item>
+            <el-form-item label="Guest enable">
+                <el-switch v-model="toSetup.guest_enable"></el-switch>
+            </el-form-item>
+            <el-form-item v-show="toSetup.guest_enable" label="Guest password (Optional)">
+                <el-input v-model="toSetup.guest_password"></el-input>
             </el-form-item>
             <el-form-item>
-                <el-button type="primary" @click="register">Register</el-button>
+                <el-button type="primary" @click="setupAll">Register</el-button>
             </el-form-item>
         </el-form>
     </el-row>
 </template>
 
-<style>
-
-</style>
+<style></style>

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { inject, Ref, ref, watch } from 'vue';
 import { MediaInfo } from '../models';
-import { getMedias, searchMedia } from '../serverApi';
+import { getMedias, searchMedia, searchMediaFilter } from '../serverApi';
 import { current_media, current_source, desktopMode, tryGetCurrentSource } from './util';
 import player from '../MediaPlayer';
 import { Search } from '@element-plus/icons-vue';
@@ -75,9 +75,13 @@ let searchMode = false;
 let lastVal = '';
 async function searchIt(val: string) {
     if (val != '' && val != lastVal) {
+        let query = router.currentRoute.value.query as {
+            s: string,
+            f: string,
+        };
         loading.value = true;
         resetPages();
-        let result = await searchMedia(val, getIndex(), limit, searchIt);
+        let result = await searchMediaFilter(val, getIndex(), limit, query.s, query.f, searchIt);
         mediasInfo.value = result.content;
         total.value = result.length;
         searchMode = true;

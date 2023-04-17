@@ -4,6 +4,12 @@ export interface ServerInfo {
     time_running: number,
 }
 
+export interface SetupInfo {
+    admin_required: boolean,
+    guest_enable: boolean,
+    guest_password_required: boolean,
+}
+
 export interface MediaInfo {
     id: string,
     title: string,
@@ -41,4 +47,6 @@ export interface LoginUser {
 
 export interface ToSetup {
     admin: UserInfo,
+    guest_enable: boolean,
+    guest_password?: string,
 }

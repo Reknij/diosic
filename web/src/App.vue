@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import Cookies from 'js-cookie';
 import { provide, ref, watch } from 'vue';
-import { current_user } from './components/util';
+import { current_user, setup_info } from './components/util';
 import { UserInfo } from './models';
 import router from './router';
-import { getCurrentUser, requireSetup } from './serverApi';
+import { getCurrentUser, getSetupInfo } from './serverApi';
 
 async function autoRedirect() {
     if (router.currentRoute.value.path == '/') await routeTo();
@@ -13,7 +13,8 @@ async function autoRedirect() {
 watch(router.currentRoute, autoRedirect);
 
 async function routeTo() {
-    if (await requireSetup()) {
+    setup_info.value = await getSetupInfo();
+    if (setup_info.value.admin_required) {
         await router.replace('/setup')
     }
     else if (!Cookies.get("authorization")) {

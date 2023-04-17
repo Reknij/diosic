@@ -2,10 +2,11 @@
 import { inject, reactive, Ref, ref } from 'vue';
 import router from '../router';
 import { updateUser } from '../serverApi';
-import { current_user } from './util';
+import { current_user, setup_info } from './util';
 
 let title = inject<Ref<string>>('title')
 let form = ref(current_user.value);
+let isGuest = ref(form.value?.username == "guest");
 async function apply() {
     if (form.value) {
         await updateUser(form.value);
@@ -22,20 +23,20 @@ if (title) {
 <template>
     <el-row v-if="form" align="middle" justify="center">
         <el-form class="loginForm" v-model="form">
-            <h1>
+            <h1 v-if="!isGuest">
                 Update information
             </h1>
             <el-form-item label="Username">
                 <el-input v-model="form.username" disabled></el-input>
             </el-form-item>
             <el-form-item label="Alias">
-                <el-input v-model="form.alias"></el-input>
+                <el-input v-model="form.alias" :disabled="isGuest"></el-input>
             </el-form-item>
             <el-form-item label="Password">
-                <el-input show-password v-model="form.password"></el-input>
+                <el-input show-password v-model="form.password" :disabled="isGuest"></el-input>
             </el-form-item>
             <el-form-item>
-                <el-button type="primary" @click="apply">Apply</el-button>
+                <el-button type="primary" @click="apply" :disabled="isGuest">Apply</el-button>
             </el-form-item>
         </el-form>
     </el-row>
