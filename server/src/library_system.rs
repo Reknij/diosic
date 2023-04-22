@@ -139,7 +139,7 @@ impl LibrarySystem {
                 let meta = crate::metadata::read_from_path(m, &config).await;
 
                 let cover = get_image_path_media(&m);
-                let categories = get_categories_from_directory(&m, &lib);
+                let mut categories = get_categories_from_directory(&m, &lib);
 
                 let info = {
                     let info = MediaInfo {
@@ -180,8 +180,11 @@ impl LibrarySystem {
                         plgsys
                             .process_media_info_json(m.to_str().unwrap(), &mut json)
                             .await;
-                        match serde_json::from_str(&json) {
-                            Ok(v) => ArcMediaInfo::new(v),
+                        match serde_json::from_str::<MediaInfo>(&json) {
+                            Ok(v) => {
+                                categories = v.categories.clone();
+                                ArcMediaInfo::new(v)
+                            },
                             Err(err) => {
                                 let c = match err.classify() {
                                     serde_json::error::Category::Io => "IO",
