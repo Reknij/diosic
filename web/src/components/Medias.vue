@@ -6,6 +6,8 @@ import { current_media, current_source, desktopMode, tryGetCurrentSource } from 
 import player from '../MediaPlayer';
 import { Search } from '@element-plus/icons-vue';
 import router from '../router';
+import { TableColumn, TableColumnCtx } from 'element-plus/es/components/table/src/table-column/defaults';
+import { TableColumnInstance } from 'element-plus';
 
 let currentPage = ref(1);
 let total = ref(0);
@@ -51,8 +53,18 @@ async function loadMedias() {
 loadMedias();
 
 async function clickMedia(row: MediaInfo) {
+    if (isClickedCell) {
+        isClickedCell = false;
+        return;
+    }
     current_media.value = row;
     await player.play(row);
+}
+
+let isClickedCell = false;
+async function clickMediaCell(source: string, filter: string) {
+    isClickedCell = true;
+    await router.push(`/home/medias?s=${source}&f=${filter}`)
 }
 
 async function changePage(newPage: number) {
@@ -151,13 +163,40 @@ async function playAll(shuttle: boolean = false) {
 
         <el-table :data="mediasInfo" style="width: 100%" @row-click="clickMedia">
             <el-table-column prop="title" label="Title" />
-            <el-table-column prop="artist" label="Artist" />
+            <el-table-column prop="artist" label="Artist">
+                <template #default="scope">
+                    <span class="mediaCellProp" @click="clickMediaCell(`artist`, scope.row.artist)">{{ scope.row.artist }}</span>
+                </template>
+            </el-table-column>
             <el-table-column v-if="desktopMode && router.currentRoute.value.query.s != 'album'" prop="album"
-                label="Album" />
-            <el-table-column v-if="desktopMode" prop="genre" label="Genre" />
-            <el-table-column v-if="desktopMode" prop="year" label="Year" />
+                label="Album">
+                <template #default="scope">
+                    <span class="mediaCellProp" @click="clickMediaCell(`album`, scope.row.album)">{{ scope.row.album }}</span>
+                </template>
+            </el-table-column>
+            <el-table-column v-if="desktopMode" prop="categories" label="Categories">
+                <template #default="scope">
+                    <span v-if="scope.row.categories.length == 0">Empty</span>
+                    <el-tag style="margin: 2px;" class="mediaCellProp" @click="clickMediaCell(`category`, c)" v-for="(c) in scope.row.categories" :key="c">{{ c }}</el-tag>
+                    <el-tag  style="margin: 2px;" class="mediaCellProp" @click="clickMediaCell(`category`, c)" v-for="(c) in scope.row.categories" :key="c">{{ c }}</el-tag>
+                </template>
+            </el-table-column>
+            <el-table-column v-if="desktopMode && router.currentRoute.value.query.s != 'genre'" prop="genre" label="Genre">
+                <template #default="scope">
+                    <span class="mediaCellProp" @click="clickMediaCell(`genre`, scope.row.genre)">{{ scope.row.genre }}</span>
+                </template>
+            </el-table-column>
+            <el-table-column v-if="desktopMode && router.currentRoute.value.query.s != 'year'" prop="year" label="Year">
+                <template #default="scope">
+                    <span class="mediaCellProp" @click="clickMediaCell(`year`, scope.row.year)">{{ scope.row.year }}</span>
+                </template>
+            </el-table-column>
             <el-table-column v-if="desktopMode && router.currentRoute.value.query.s != 'library'" prop="library"
-                label="Library" />
+                label="Library">
+                <template #default="scope">
+                    <span class="mediaCellProp" @click="clickMediaCell(`library`, scope.row.library)">{{ scope.row.library }}</span>
+                </template>
+            </el-table-column>
         </el-table>
         <el-pagination class="autoMargin" :current-page="currentPage" @current-change="changePage" :page-size="limit"
             layout="total, prev, pager, next" :total="total"></el-pagination>
@@ -165,5 +204,7 @@ async function playAll(shuttle: boolean = false) {
 </template>
 
 <style>
-
+.mediaCellProp:hover {
+    cursor: pointer;
+}
 </style>

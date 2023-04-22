@@ -39,7 +39,7 @@ async function scanLibrariesClick() {
         })
     } catch (error: any) {
         ElMessage.error({
-            message: error.response.data
+            message: "Scan libraries failed. Please see the message in the log of server."
         })
     }
 }

@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import Cookies from "js-cookie";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { MediaSourceInfo } from '../models'
 import router from "../router";
-import { current_source, libraries, albums, categories, artists, genres, years, current_user } from "./util";
+import { current_source, libraries, albums, categories, artists, genres, years, current_user, tryGetCurrentSource } from "./util";
 import { logout, scanLibraries } from '../serverApi';
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+let defaultActive = ref('library');
+let defaultOpendeds = ref(['library']);
+
 async function go(source: string, current: MediaSourceInfo) {
-    current_source.value = current;
     await router.push({
         path: '/home/medias',
         query: {
@@ -18,13 +20,18 @@ async function go(source: string, current: MediaSourceInfo) {
     })
 }
 
-let defaultActive = ref('library');
-let defaultOpendeds = ref(['library']);
-let query = router.currentRoute.value.query;
-if (query.s) {
-    if (query.f) defaultActive.value = `${query.s}-${query.f}`;
-    else defaultActive.value = `${query.s}`;
+async function setMenuActive() {
+    let query = router.currentRoute.value.query;
+    if (query.s) {
+        if (query.f) defaultActive.value = `${query.s}-${query.f}`;
+        else defaultActive.value = `${query.s}`;
+    }
+    await tryGetCurrentSource(query);
 }
+setMenuActive();
+watch(router.currentRoute, async () => {
+    await setMenuActive();
+})
 
 async function logoutNow() {
     ElMessageBox.confirm(
@@ -99,8 +106,7 @@ async function toUsers() {
             <template #title>
                 <span>Artists</span>
             </template>
-            <el-menu-item :index="`artist-${val.title}`" :key="i" v-for="(val, i) in artists"
-                @click="go('artist', val)">
+            <el-menu-item :index="`artist-${val.title}`" :key="i" v-for="(val, i) in artists" @click="go('artist', val)">
                 {{ val.title }}</el-menu-item>
         </el-sub-menu>
 
@@ -134,6 +140,4 @@ async function toUsers() {
     </el-menu>
 </template>
 
-<style>
-
-</style>
+<style></style>
