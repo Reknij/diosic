@@ -183,7 +183,13 @@ impl LibrarySystem {
                         match serde_json::from_str(&json) {
                             Ok(v) => ArcMediaInfo::new(v),
                             Err(err) => {
-                                warn!("failed to parse media info json: {}", err);
+                                let c = match err.classify() {
+                                    serde_json::error::Category::Io => "IO",
+                                    serde_json::error::Category::Syntax => "Syntax",
+                                    serde_json::error::Category::Data => "Data",
+                                    serde_json::error::Category::Eof => "EOF",
+                                };
+                                warn!("failed to parse media info json with {} error: {}\n{}", c, err, &json);
                                 ArcMediaInfo::new(info)
                             }
                         }
