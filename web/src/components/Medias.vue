@@ -178,7 +178,6 @@ async function playAll(shuttle: boolean = false) {
                 <template #default="scope">
                     <span v-if="scope.row.categories.length == 0">Empty</span>
                     <el-tag style="margin: 2px;" class="mediaCellProp" @click="clickMediaCell(`category`, c)" v-for="(c) in scope.row.categories" :key="c">{{ c }}</el-tag>
-                    <el-tag  style="margin: 2px;" class="mediaCellProp" @click="clickMediaCell(`category`, c)" v-for="(c) in scope.row.categories" :key="c">{{ c }}</el-tag>
                 </template>
             </el-table-column>
             <el-table-column v-if="desktopMode && router.currentRoute.value.query.s != 'genre'" prop="genre" label="Genre">
