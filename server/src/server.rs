@@ -31,7 +31,7 @@ pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
     info!("Running server in {}:{}", &config.address, &config.port);
     let usersys = web::Data::new(s.user_system);
     let libsys = web::Data::new(RwLock::new(s.library_system));
-    let plgsys = web::Data::new(s.plugin_system);
+    let plgsys = web::Data::new(RwLock::new(s.plugin_system));
     let start = web::Data::new(Instant::now());
     let setup = web::Data::new(s.setup_config_helper);
 
@@ -75,7 +75,9 @@ pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
                     .service(api::login_user)
                     .service(api::logout_user)
                     .service(api::get_current_user)
-                    .service(api::scan_libraries),
+                    .service(api::scan_libraries)
+                    .service(api::scan_plugins)
+                    .service(api::get_plugin)
             )
             .service(
                 actix_files::Files::new("/", "./webpage")

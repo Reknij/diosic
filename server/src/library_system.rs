@@ -342,7 +342,7 @@ impl LibrarySystem {
         }
     }
 
-    pub async fn scan<'a>(&mut self, plgsys: &plugin_system::PluginSystem) {
+    pub async fn scan(&mut self, plgsys: &plugin_system::PluginSystem) {
         info!("Scanning all library..");
         let newed = LibrarySystem::new(self.last_access_config.clone(), plgsys).await;
         *self = newed;

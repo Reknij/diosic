@@ -18,7 +18,7 @@ use super::from_requests::*;
 
 type LibSys = web::Data<RwLock<crate::library_system::LibrarySystem>>;
 type UserSys = web::Data<crate::user_system::UserSystem>;
-type PlgSys = web::Data<crate::plugin_system::PluginSystem>;
+type PlgSys = web::Data<RwLock<crate::plugin_system::PluginSystem>>;
 type SCHelper = web::Data<Arc<crate::config::SetupConfigHelper>>;
 
 #[get("/setup_info")]
@@ -383,8 +383,8 @@ pub async fn get_users(
     if !permission.is_admin() {
         return Err(APIError::with(NoPermission).note("Only admin can access."));
     }
-
-    let users = user_system.get_users(query.index, query.limit).await;
+    let index = query.index * query.limit;
+    let users = user_system.get_users(index, query.limit).await;
     match users {
         Ok(users) => {
             let users: Vec<dto::UserInfo> = users.iter().map(|u| u.to_owned().into()).collect();
@@ -399,8 +399,9 @@ pub async fn search_user(
     user_sys: UserSys,
     query: web::Query<dto::SearchUserQuery>,
 ) -> Result<Json<dto::SearchResult<dto::UserInfo>>, APIError> {
+    let index = query.index * query.limit;
     match user_sys
-        .get_users_by_search(&query.content, query.index, query.limit)
+        .get_users_by_search(&query.content, index, query.limit)
         .await
     {
         Ok((result, count)) => Ok(Json(dto::SearchResult {
@@ -569,7 +570,8 @@ pub async fn scan_libraries<'a>(
     if !permission.is_admin() {
         Err(APIError::with(NoPermission).note("Only administrator can operate."))
     } else {
-        library_system.write().await.scan(&plugin_system).await;
+        let plgsys = plugin_system.read().await;
+        library_system.write().await.scan(&plgsys).await;
         Ok(HttpResponse::Ok().finish())
     }
 }
@@ -587,5 +589,43 @@ pub async fn get_server_info(
             version: env!("CARGO_PKG_VERSION"),
             time_running: start.elapsed().as_secs(),
         }))
+    }
+}
+
+#[get("/scan_plugins")]
+pub async fn scan_plugins(
+    permission: UserPermission,
+    plusys: PlgSys,
+) -> Result<HttpResponse, APIError> {
+    if !permission.is_admin() {
+        Err(APIError::with(NoPermission).note("Only administrator can access."))
+    } else {
+        plusys.write().await.scan().await;
+        Ok(HttpResponse::Ok().finish())
+    }
+}
+
+#[get("/plugin")]
+pub async fn get_plugin(
+    permission: UserPermission,
+    plusys: PlgSys,
+    query: web::Query<dto::GetPLuginQuery>,
+) -> Result<HttpResponse, APIError> {
+    if !permission.is_admin() {
+        Err(APIError::with(NoPermission).note("Only administrator can access."))
+    } else {
+        let r = plusys.read().await;
+        let infos = r.get_plugins_info();
+        let index = query.index * query.limit;
+        let max = {
+            let max = index + query.limit;
+            if max > infos.len() {
+                infos.len()
+            } else {
+                max
+            }
+        };
+
+        Ok(HttpResponse::Ok().json(infos[index..max].to_vec()))
     }
 }

@@ -25,3 +25,6 @@ lofty = "0.11"
 clap = { version = "4.0.29", features = ["derive"] }
 wasmtime = { version = "7"}
 wasmtime-wasi = { version = "7" }
+reqwest = { version = "*", default-features = false, features = ["rustls-tls"] }
+anyhow = "*"
+chrono = "0.4"

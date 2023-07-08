@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{library_system, user_system, myutil::{self, DiosicID}};
+use crate::{library_system, user_system, myutil::{self, DiosicID}, plugin_system};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ServerInfo {
@@ -127,6 +127,39 @@ pub struct SearchUserQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthQuery {
     pub auth: DiosicID
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GetPLuginQuery {
+    pub index: usize,
+    pub limit: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddPLuginQuery {
+    pub address: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RemovePluginQuery {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UndoAddPluginQuery {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToAddPlugin {
+    pub id: String,
+    pub url: String,
+}
+
+impl From<plugin_system::ToAddPlugin> for ToAddPlugin {
+    fn from(value: plugin_system::ToAddPlugin) -> Self {
+        ToAddPlugin { id: value.id, url: value.url }
+    }
 }
 
 impl ToSetup {
