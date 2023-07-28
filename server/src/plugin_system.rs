@@ -1,21 +1,20 @@
 use std::{
+    collections::HashMap,
     ffi::{CStr, CString},
     fmt::Debug,
-    sync::Arc, path::PathBuf, collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
 };
 
-use crate::{config::Config, myutil};
-use anyhow::{bail, Result};
+use crate::config::Config;
 use serde::{Deserialize, Serialize};
 use tokio::{fs, sync::Mutex};
 use tracing::{error, info, log::warn};
 use walkdir::WalkDir;
 use wasmtime::{Engine, Instance, Linker, Module, Store};
 use wasmtime_wasi::{sync::WasiCtxBuilder, WasiCtx};
-use chrono::prelude::*;
 
 const PROCESS_MEDIA_INFO_JSON_FUNCTION: &str = "process_media_info_json";
-const GET_PLUGIN_INFO_JSON_FUNCTION: &str = "get_plugin_info_json";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PluginInfo {
@@ -31,16 +30,8 @@ pub struct PluginList {
     pub to_add: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ToAddPlugin {
-    pub id: String,
-    pub save_path: PathBuf,
-    pub url: String,
-}
-
 #[derive(Clone)]
 pub struct PluginSystem {
-    plugins_directory: Option<PathBuf>,
     last_access_config: Arc<Config>,
     _engine: Engine,
     store: Arc<Mutex<Store<WasiCtx>>>,
@@ -76,7 +67,6 @@ impl PluginSystem {
         let mut instances = vec![];
         let mut infos = HashMap::new();
 
-        let mut plugins_directory = None;
         match &config.data_path {
             Some(data_path) => {
                 if data_path.exists() {
@@ -84,26 +74,25 @@ impl PluginSystem {
                     if !plugins_path.exists() {
                         fs::create_dir(&plugins_path).await.unwrap();
                     }
-                    plugins_directory = Some(plugins_path.clone());
-                    let wasm_files = WalkDir::new(plugins_path)
+                    let wasm_dirs = WalkDir::new(plugins_path)
                         .follow_links(false)
                         .into_iter()
                         .filter_map(|file| {
                             file.ok().and_then(|f| {
-                                let extension = f
-                                    .path()
-                                    .extension()
-                                    .unwrap_or_default()
-                                    .to_str()
-                                    .unwrap_or_default();
-                                if f.path().is_file() && extension == "wasm" {
+                                if f.path().is_dir() {
                                     return Some(f);
                                 }
                                 None
                             })
                         });
-                    for w in wasm_files {
-                        let bytes = tokio::fs::read(w.path()).await;
+                    for dir in wasm_dirs {
+                        let dir_path = dir.path();
+                        let main_wasm_file = dir_path.join("main.wasm");
+                        let main_toml_file = dir_path.join("main.json");
+                        if !main_wasm_file.is_file() || !main_toml_file.is_file() {
+                            continue;
+                        }
+                        let bytes = tokio::fs::read(main_wasm_file).await;
                         match bytes {
                             Ok(bytes) => {
                                 let cpt = Module::new(&engine, &bytes);
@@ -113,59 +102,34 @@ impl PluginSystem {
                                             linker.instantiate_async(&mut store, &cpt).await;
                                         match instance {
                                             Ok(i) => {
-                                                let func = i.get_typed_func::<(), (u32,)>(
-                                                    &mut store,
-                                                    GET_PLUGIN_INFO_JSON_FUNCTION,
-                                                );
-                                                let memory = i.get_memory(&mut store, "memory");
-                                                let mut info: Option<PluginInfo> = None;
-                                                if func.is_ok() && memory.is_some() {
-                                                    let f = func.unwrap();
-                                                    let memory = memory.unwrap();
-
-                                                    let result = f.call_async(&mut store, ()).await;
-                                                    match result {
-                                                        Ok((ptr,)) => {
-                                                            let info_ptr = unsafe {
-                                                                memory
-                                                                    .data_ptr(&mut store)
-                                                                    .add(ptr as _)
-                                                            };
-                                                            let info_str = unsafe {
-                                                                CStr::from_ptr(info_ptr as _)
-                                                                    .to_str()
-                                                            };
-                                                            if let Ok(str) = info_str {
-                                                                info = serde_json::from_str(str).map_err(|err| error!("deserialize plugin info got error: {}", err)).ok()
+                                                let info = {
+                                                    let arr = fs::read(main_toml_file).await;
+                                                    match arr {
+                                                        Ok(arr) => {
+                                                            match serde_json::from_slice::<PluginInfo>(
+                                                                &arr,
+                                                            ) {
+                                                                Ok(info) => info,
+                                                                Err(err) => {
+                                                                    error!("Deserialize plugin main.json failed: {}", err);
+                                                                    continue;
+                                                                }
                                                             }
                                                         }
-                                                        Err(err) => error!(
-                                                            "call {} got error: {}",
-                                                            GET_PLUGIN_INFO_JSON_FUNCTION, err
-                                                        ),
+                                                        Err(err) => {
+                                                            error!("Read plugin main.json occurs error: {}", err);
+                                                            continue;
+                                                        }
                                                     }
-                                                } else {
-                                                    if let Err(err) = func {
-                                                        error!(
-                                                            "get {} failed: {}",
-                                                            GET_PLUGIN_INFO_JSON_FUNCTION, err
-                                                        );
-                                                    }
+                                                };
 
-                                                    if memory.is_none() {
-                                                        error!("get memory failed");
-                                                    }
-                                                }
+                                                info!("Loaded a plugin <{}>", &info.name);
 
-                                                match info {
-                                                    Some(info) => {
-                                                        info!("Loaded a plugin <{}>", &info.name);
-
-                                                        instances.push(i);
-                                                        infos.insert(info.name.clone(), (info, w.into_path()));
-                                                    }
-                                                    None => todo!(),
-                                                }
+                                                instances.push(i);
+                                                infos.insert(
+                                                    info.name.clone(),
+                                                    (info, dir.into_path()),
+                                                );
                                             }
                                             Err(err) => error!("Linker: {}", err),
                                         }
@@ -192,7 +156,6 @@ impl PluginSystem {
             store: Arc::new(Mutex::new(store)),
             instances,
             infos,
-            plugins_directory,
         }
     }
 
@@ -204,10 +167,6 @@ impl PluginSystem {
 
     pub fn exists_plugins(&self) -> bool {
         self.instances.len() > 0
-    }
-
-    pub fn exist_plugin(&self, name: String)-> bool {
-        self.infos.contains_key(&name)
     }
 
     pub async fn process_media_info_json(&self, media_path: &str, media_info: &mut String) {
@@ -252,7 +211,7 @@ impl PluginSystem {
 
     pub fn get_plugins_info(&self) -> Vec<PluginInfo> {
         let mut current: Vec<PluginInfo> = Vec::with_capacity(self.infos.len());
-        for (_, (info, path)) in &self.infos {
+        for (_, (info, _path)) in &self.infos {
             current.push(info.to_owned());
         }
         current

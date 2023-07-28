@@ -1,11 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{library_system, user_system, myutil::{self, DiosicID}, plugin_system};
+use crate::{
+    library_system,
+    myutil::{self, DiosicID},
+    user_system,
+};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ServerInfo {
     pub version: &'static str,
-    pub author:  &'static str,
+    pub author: &'static str,
     pub time_running: u64,
 }
 
@@ -89,17 +93,17 @@ pub struct ToSetup {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetLibraryQuery {
-    pub title: String
+    pub title: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetAlbumQuery {
-    pub title: String
+    pub title: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GetCategoryQuery {
-    pub title: String
+    pub title: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -126,7 +130,7 @@ pub struct SearchUserQuery {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthQuery {
-    pub auth: DiosicID
+    pub auth: DiosicID,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -148,18 +152,6 @@ pub struct RemovePluginQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UndoAddPluginQuery {
     pub id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ToAddPlugin {
-    pub id: String,
-    pub url: String,
-}
-
-impl From<plugin_system::ToAddPlugin> for ToAddPlugin {
-    fn from(value: plugin_system::ToAddPlugin) -> Self {
-        ToAddPlugin { id: value.id, url: value.url }
-    }
 }
 
 impl ToSetup {
@@ -215,7 +207,10 @@ impl Into<user_system::UserInfo> for UserInfo {
     }
 }
 
-impl<T> From<T> for MediaInfo where T: AsRef<library_system::MediaInfo> {
+impl<T> From<T> for MediaInfo
+where
+    T: AsRef<library_system::MediaInfo>,
+{
     fn from(m: T) -> Self {
         let m: &library_system::MediaInfo = m.as_ref();
         Self {
