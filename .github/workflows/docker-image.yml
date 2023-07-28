@@ -1,4 +1,4 @@
-name: ci
+name: latest-docker-ci
 
 on:
   push:
