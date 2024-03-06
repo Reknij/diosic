@@ -5,6 +5,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 use walkdir::WalkDir;
 
@@ -70,6 +71,7 @@ pub struct LibrarySystem {
     covers: HashMap<DiosicID, PathBuf>,
 
     last_access_config: Arc<Config>,
+    last_search_medias: Arc<RwLock<Option<(String, Vec<ArcMediaInfo>)>>>,
 }
 
 impl MediaLibrary {
@@ -107,7 +109,10 @@ fn get_categories_from_directory(path: &PathBuf, lib: &MediaLibrary) -> Vec<Stri
 }
 
 impl LibrarySystem {
-    pub async fn new<'a>(config: Arc<Config>, plgsys: &plugin_system::PluginSystem) -> LibrarySystem {
+    pub async fn new<'a>(
+        config: Arc<Config>,
+        plgsys: &plugin_system::PluginSystem,
+    ) -> LibrarySystem {
         let mut libraries_info = HashMap::with_capacity(config.libraries.len());
         let mut albums_info = HashMap::new();
         let mut categories_info = HashMap::new();
@@ -184,7 +189,7 @@ impl LibrarySystem {
                             Ok(v) => {
                                 categories = v.categories.clone();
                                 ArcMediaInfo::new(v)
-                            },
+                            }
                             Err(err) => {
                                 let c = match err.classify() {
                                     serde_json::error::Category::Io => "IO",
@@ -192,7 +197,10 @@ impl LibrarySystem {
                                     serde_json::error::Category::Data => "Data",
                                     serde_json::error::Category::Eof => "EOF",
                                 };
-                                warn!("failed to parse media info json with {} error: {}\n{}", c, err, &json);
+                                warn!(
+                                    "failed to parse media info json with {} error: {}\n{}",
+                                    c, err, &json
+                                );
                                 ArcMediaInfo::new(info)
                             }
                         }
@@ -339,6 +347,7 @@ impl LibrarySystem {
             years_info,
 
             last_access_config: config.clone(),
+            last_search_medias: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -474,24 +483,39 @@ impl LibrarySystem {
         search: &str,
         index: usize,
         limit: usize,
-    ) -> Vec<Arc<MediaInfo>> {
-        let mut result = Vec::new();
-
+    ) -> Vec<ArcMediaInfo> {
+        fn get_result(index: usize, limit: usize, result: &Vec<ArcMediaInfo>) -> Vec<ArcMediaInfo> {
+            let max = {
+                let m = index + limit;
+                if m > result.len() {
+                    result.len()
+                } else {
+                    m
+                }
+            };
+            result[index..max].to_vec()
+        }
         let index = index * limit;
-        let max = {
-            let max = index + limit;
-            if max > medias.len() {
-                medias.len()
-            } else {
-                max
-            }
-        };
-
-        for m in &medias[index..max] {
-            if m.contains(search) {
-                result.push(m.clone());
+        {
+            let last = self.last_search_medias.read().await;
+            if let Some((last_search, medias)) = last.as_ref() {
+                if search == last_search {
+                    return get_result(index, limit, medias);
+                }
             }
         }
+
+        let mut arr = Vec::with_capacity(30);
+        for m in medias {
+            if m.contains(search) {
+                arr.push(m.clone());
+            }
+        }
+        let result = get_result(index, limit, &arr);
+        self.last_search_medias
+            .write()
+            .await
+            .replace((search.to_owned(), arr));
         result
     }
 
