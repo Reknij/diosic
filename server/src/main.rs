@@ -26,7 +26,7 @@ async fn main() {
         std::env::set_var("RUST_LOG", "actix_web=debug");
     }
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::INFO)
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
     tracing::info!("Starting tracing!");
