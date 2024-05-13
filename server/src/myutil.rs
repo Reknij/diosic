@@ -4,10 +4,6 @@ use std::{
     path::Path,
 };
 
-mod diosic_id;
-
-pub use diosic_id::DiosicID;
-
 pub fn calc_hash<T: Hash + Sized>(obj: &T) -> u64 {
     let mut hasher = DefaultHasher::new();
     obj.hash(&mut hasher);

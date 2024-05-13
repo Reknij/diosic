@@ -1,562 +1,515 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
+    time,
 };
 
-use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-use tracing::{info, warn};
-use walkdir::WalkDir;
+use futures_util::future::join_all;
+use sqlx::{sqlite::SqliteRow, Pool, QueryBuilder, Row, Sqlite};
+use tracing::{error, info};
+
+pub mod model;
 
 use crate::{
     config::Config,
-    myutil::{self, DiosicID},
+    myutil::{self},
     plugin_system::{self},
 };
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct MediaInfo {
-    pub id: DiosicID,
-    pub path: PathBuf,
-    pub title: String,
-    pub album: String,
-    pub artist: String,
-    pub genre: String,
-    pub year: String,
-    pub library: String,
-    pub cover: Option<String>,
-    pub categories: Vec<String>,
-    pub simple_rate: Option<u32>,
-    pub bit_depth: Option<u8>,
-    pub audio_bitrate: Option<u32>,
-    pub overall_bitrate: Option<u32>,
-    pub channels: Option<u8>,
-    pub duration_milliseconds: u128,
-}
+use self::model::{LibraryInfo, MediaInfo, MediaMetaInfo, Source, SourceInfo};
 
-pub type ArcMediaInfo = Arc<MediaInfo>;
-
-#[derive(Debug, PartialEq, Serialize, Deserialize, Eq, Hash, Clone)]
-pub struct MediaLibrary {
-    pub path: PathBuf,
-    pub title: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct MediaSourceInfo {
-    pub title: String,
-    pub length: usize,
-}
+const SQLITE_LIMIT: usize = 999;
 
 #[derive(Debug, Clone)]
 pub struct LibrarySystem {
-    medias_path: HashMap<DiosicID, PathBuf>,
-    medias_info: HashMap<DiosicID, ArcMediaInfo>,
-
-    lib_medias: HashMap<String, Vec<ArcMediaInfo>>,
-    album_medias: HashMap<String, Vec<ArcMediaInfo>>,
-    category_medias: HashMap<String, Vec<ArcMediaInfo>>,
-    artist_medias: HashMap<String, Vec<ArcMediaInfo>>,
-    genre_medias: HashMap<String, Vec<ArcMediaInfo>>,
-    year_medias: HashMap<String, Vec<ArcMediaInfo>>,
-
-    libraries_info: HashMap<String, MediaSourceInfo>,
-    categories_info: HashMap<String, MediaSourceInfo>,
-    albums_info: HashMap<String, MediaSourceInfo>,
-    artists_info: HashMap<String, MediaSourceInfo>,
-    genres_info: HashMap<String, MediaSourceInfo>,
-    years_info: HashMap<String, MediaSourceInfo>,
-
-    covers: HashMap<DiosicID, PathBuf>,
-
-    last_access_config: Arc<Config>,
-    last_search_medias: Arc<RwLock<Option<(String, Vec<ArcMediaInfo>)>>>,
-}
-
-impl MediaLibrary {
-    pub async fn fetch(&self) -> Vec<PathBuf> {
-        info!("fetching..");
-        let mut files = Vec::new();
-        for entry in WalkDir::new(&self.path)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(|e| {
-                e.ok()
-                    .and_then(|e| if e.path().is_file() { Some(e) } else { None })
-            })
-        {
-            files.push(entry.into_path())
-        }
-
-        files
-    }
-}
-
-fn get_categories_from_directory(path: &PathBuf, lib: &MediaLibrary) -> Vec<String> {
-    let mut categories = Vec::new();
-    if let Some(parent) = path.parent() {
-        if parent != lib.path {
-            if let Some(name) = parent.file_name() {
-                categories.push(name.to_str().unwrap().to_string());
-                let mut grandparent = get_categories_from_directory(&parent.to_path_buf(), &lib);
-                categories.append(&mut grandparent);
-            }
-        }
-    }
-
-    categories
+    db: Pool<Sqlite>,
+    config: Arc<Config>,
 }
 
 impl LibrarySystem {
-    pub async fn new<'a>(
-        config: Arc<Config>,
-        plgsys: &plugin_system::PluginSystem,
-    ) -> LibrarySystem {
-        let mut libraries_info = HashMap::with_capacity(config.libraries.len());
-        let mut albums_info = HashMap::new();
-        let mut categories_info = HashMap::new();
-        let mut artists_info = HashMap::new();
-        let mut genres_info = HashMap::new();
-        let mut years_info = HashMap::new();
+    pub async fn recreate_tables(db: Pool<Sqlite>) {
+        sqlx::query(
+            "DROP TABLE IF EXISTS medias;
+            DROP TABLE IF EXISTS media_categories;",
+        )
+        .execute(&db)
+        .await
+        .expect("LibrarySystem drop tables failed!");
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS medias(
+            id INTEGER PRIMARY KEY,
+            path TEXT NOT NULL,
+            title TEXT NOT NULL,
+            album TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            genre TEXT NOT NULL,
+            year INT NOT NULL,
+            library TEXT NOT NULL,
+            cover_path TEXT NULL,
+            cover_url TEXT NULL,
+            sample_rate INT NULL,
+            bit_depth INT NULL,
+            audio_bitrate INT NULL,
+            overall_bitrate INT NULL,
+            channels INT NULL,
+            duration_seconds INT NOT NULL,
+            file_name TEXT NOT NULL,
+            file_type TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS mi_library ON medias (library);
+        CREATE INDEX IF NOT EXISTS mi_album ON medias (album);
+        CREATE INDEX IF NOT EXISTS mi_artist ON medias (artist);
+        CREATE INDEX IF NOT EXISTS mi_genre ON medias (genre);
+        CREATE INDEX IF NOT EXISTS mi_year ON medias (year);",
+        )
+        .execute(&db)
+        .await
+        .expect("Create `medias` table failed!");
 
-        let mut medias_path = HashMap::new();
-        let mut medias_info = HashMap::new();
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS media_categories(
+            category_title TEXT NOT NULL,
+            media_id INT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS mci_category_title ON media_categories (category_title);
+        CREATE INDEX IF NOT EXISTS mci_media_id ON media_categories (media_id);",
+        )
+        .execute(&db)
+        .await
+        .expect("Create `media_categories` table failed!");
+    }
 
-        let mut lib_medias: HashMap<String, Vec<ArcMediaInfo>> =
-            HashMap::with_capacity(config.libraries.len());
-        let mut album_medias: HashMap<String, Vec<ArcMediaInfo>> = HashMap::new();
-        let mut category_medias: HashMap<String, Vec<ArcMediaInfo>> = HashMap::new();
-        let mut artist_medias: HashMap<String, Vec<ArcMediaInfo>> = HashMap::new();
-        let mut genre_medias: HashMap<String, Vec<ArcMediaInfo>> = HashMap::new();
-        let mut year_medias: HashMap<String, Vec<ArcMediaInfo>> = HashMap::new();
+    pub async fn new<'a>(db: Pool<Sqlite>, config: Arc<Config>) -> LibrarySystem {
+        Self::recreate_tables(db.clone()).await;
 
-        let mut covers = HashMap::new();
-        if plgsys.exists_plugins() {
-            info!("Will process media info with plugins.");
-        }
-        for lib in &config.libraries {
-            let paths = &lib.fetch().await;
-            let mut medias = Vec::with_capacity(paths.len());
-            for m in paths {
-                let id: DiosicID = myutil::calc_hash(&m.to_str().unwrap()).into();
+        LibrarySystem { config, db }
+    }
 
-                let meta = crate::metadata::read_from_path(m, &config).await;
-
-                let cover = get_image_path_media(&m);
-                let mut categories = get_categories_from_directory(&m, &lib);
-
-                let info = {
-                    let info = MediaInfo {
-                        id: id.clone(),
-                        path: m.clone(),
-                        title: meta.title.clone(),
-                        library: lib.title.clone(),
-                        album: meta.album.clone(),
-                        artist: meta.artist.clone(),
-                        genre: meta.genre.clone(),
-                        year: meta.year.clone(),
-                        simple_rate: meta.simple_rate,
-                        bit_depth: meta.bit_depth,
-                        audio_bitrate: meta.audio_bitrate,
-                        overall_bitrate: meta.overall_bitrate,
-                        channels: meta.channels,
-                        duration_milliseconds: meta.duration_milliseconds,
-                        cover: match cover {
-                            Some(path) => {
-                                covers.insert(id.clone(), path);
-                                Some(format!("/api/media_cover/{}", id.as_str()))
-                            }
-                            None => {
-                                if let Some(path) = meta.cover {
-                                    covers.insert(id.clone(), path);
-                                    Some(format!("/api/media_cover/{}", id.as_str()))
-                                } else {
-                                    None
-                                }
-                            }
-                        },
-                        categories: categories.clone(),
-                    };
-                    if !plgsys.exists_plugins() {
-                        ArcMediaInfo::new(info)
-                    } else {
-                        let mut json = serde_json::to_string(&info).unwrap();
-                        plgsys
-                            .process_media_info_json(m.to_str().unwrap(), &mut json)
-                            .await;
-                        match serde_json::from_str::<MediaInfo>(&json) {
-                            Ok(v) => {
-                                categories = v.categories.clone();
-                                ArcMediaInfo::new(v)
-                            }
-                            Err(err) => {
-                                let c = match err.classify() {
-                                    serde_json::error::Category::Io => "IO",
-                                    serde_json::error::Category::Syntax => "Syntax",
-                                    serde_json::error::Category::Data => "Data",
-                                    serde_json::error::Category::Eof => "EOF",
-                                };
-                                warn!(
-                                    "failed to parse media info json with {} error: {}\n{}",
-                                    c, err, &json
-                                );
-                                ArcMediaInfo::new(info)
-                            }
-                        }
-                    }
-                };
-
-                for category in &categories {
-                    let categories = category_medias.get_mut(category);
-                    match categories {
-                        Some(list) => list.push(info.clone()),
-                        None => {
-                            category_medias.insert(category.to_owned(), vec![info.clone()]);
-                        }
-                    }
-                }
-
-                medias.push(info.clone());
-                medias_path.insert(id.clone(), m.to_owned());
-
-                // process albums
-                let albums = album_medias.get_mut(&meta.album);
-                match albums {
-                    Some(list) => list.push(info.clone()),
-                    None => {
-                        album_medias.insert(meta.album.to_owned(), vec![info.clone()]);
-                    }
-                }
-
-                // process artists
-                let artists = artist_medias.get_mut(&meta.artist);
-                match artists {
-                    Some(list) => list.push(info.clone()),
-                    None => {
-                        artist_medias.insert(meta.artist.to_owned(), vec![info.clone()]);
-                    }
-                }
-
-                // process genres
-                let genres = genre_medias.get_mut(&meta.genre);
-                match genres {
-                    Some(list) => list.push(info.clone()),
-                    None => {
-                        genre_medias.insert(meta.genre.to_owned(), vec![info.clone()]);
-                    }
-                }
-
-                // process years
-                let years = year_medias.get_mut(&meta.year);
-                match years {
-                    Some(list) => list.push(info.clone()),
-                    None => {
-                        year_medias.insert(meta.year.to_owned(), vec![info.clone()]);
-                    }
-                }
-
-                medias_info.insert(id.clone(), info);
+    pub async fn scan(&self) -> (Vec<(LibraryInfo, Vec<PathBuf>)>, usize) {
+        let mut library_paths: Vec<(LibraryInfo, Vec<PathBuf>)> =
+            Vec::with_capacity(self.config.libraries.len());
+        let mut total_path = 0;
+        for lib in &self.config.libraries {
+            let files = lib.fetch().await;
+            if files.is_empty() {
+                continue;
+            } else {
+                total_path += files.len();
+                library_paths.push((lib.clone(), files));
             }
-            lib_medias.insert(lib.title.to_owned(), medias);
         }
-
-        for (title, content) in &lib_medias {
-            //process libraries information
-            libraries_info.insert(
-                title.clone(),
-                MediaSourceInfo {
-                    title: title.to_owned(),
-                    length: content.len(),
-                },
-            );
-        }
-
-        for (title, content) in &album_medias {
-            //process albums information
-            albums_info.insert(
-                title.clone(),
-                MediaSourceInfo {
-                    title: title.to_owned(),
-                    length: content.len(),
-                },
-            );
-        }
-
-        for (title, content) in &category_medias {
-            //process categories information
-            categories_info.insert(
-                title.clone(),
-                MediaSourceInfo {
-                    title: title.to_owned(),
-                    length: content.len(),
-                },
-            );
-        }
-
-        for (title, content) in &artist_medias {
-            //process categories information
-            artists_info.insert(
-                title.clone(),
-                MediaSourceInfo {
-                    title: title.to_owned(),
-                    length: content.len(),
-                },
-            );
-        }
-
-        for (title, content) in &genre_medias {
-            //process categories information
-            genres_info.insert(
-                title.clone(),
-                MediaSourceInfo {
-                    title: title.to_owned(),
-                    length: content.len(),
-                },
-            );
-        }
-
-        for (title, content) in &year_medias {
-            //process categories information
-            years_info.insert(
-                title.clone(),
-                MediaSourceInfo {
-                    title: title.to_owned(),
-                    length: content.len(),
-                },
-            );
-        }
-
-        LibrarySystem {
-            medias_path,
-            covers,
-
-            lib_medias,
-            album_medias,
-            category_medias,
-            artist_medias,
-            genre_medias,
-            year_medias,
-
-            medias_info,
-            libraries_info,
-            albums_info,
-            categories_info,
-            artists_info,
-            genres_info,
-            years_info,
-
-            last_access_config: config.clone(),
-            last_search_medias: Arc::new(RwLock::new(None)),
-        }
+        (library_paths, total_path)
     }
 
-    pub async fn scan(&mut self, plgsys: &plugin_system::PluginSystem) {
+    pub async fn perform_medias(
+        &self,
+        plgsys: &plugin_system::PluginSystem,
+        library_paths: Vec<(LibraryInfo, Vec<PathBuf>)>,
+        total_path: usize,
+    ) {
+        let start = time::Instant::now();
+        Self::recreate_tables(self.db.clone()).await;
+        let mut plugins_context = if plgsys.exists_plugins().await {
+            Some(plgsys.init_plugins_context().await)
+        } else {
+            None
+        };
+
+        let mut media_start_id = 0;
+        let mut medias_handlers = Vec::with_capacity(total_path);
+        info!("Performing the medias..");
+        for (library, paths) in &library_paths {
+            for path in paths {
+                let config = self.config.clone();
+                let path = path.clone();
+                let library = library.clone();
+                media_start_id += 1;
+                let handler = tokio::spawn(async move {
+                    let mut meta = match MediaMetaInfo::read_from_path(&path, &config).await {
+                        Ok(v) => v,
+                        Err(err) => {
+                            error!("Read media meta info failed: {:?}", err);
+                            return None;
+                        }
+                    };
+                    if let Some(path) = get_image_path_media(&path) {
+                        meta.cover = Some(path);
+                    };
+
+                    let info = MediaInfo::from_meta(
+                        meta,
+                        config.clone(),
+                        &library,
+                        media_start_id,
+                        path.clone(),
+                    );
+
+                    Some(info)
+                });
+                medias_handlers.push(handler);
+            }
+        }
+
+        let mut have_category = false;
+        let mut medias: Vec<MediaInfo> = join_all(medias_handlers)
+            .await
+            .into_iter()
+            .filter(|item| item.as_ref().is_ok_and(|inner| inner.is_some()))
+            .map(|item| {
+                let media = item.unwrap().unwrap();
+                if !have_category && !media.categories.is_empty() {
+                    have_category = true;
+                }
+                media
+            })
+            .collect();
+        if medias.is_empty() {
+            return;
+        }
+
+        if let Some(ctx) = plugins_context.as_mut() {
+            for media in &mut medias {
+                ctx.process_media_info_json(media).await;
+            }
+        }
+
+        if have_category {
+            for medias in medias.chunks(SQLITE_LIMIT) {
+                let mut b = QueryBuilder::new(
+                    "INSERT INTO media_categories(category_title, media_id) VALUES ",
+                );
+                let mut s = b.separated(",");
+                for media in medias {
+                    for category in &media.categories {
+                        s.push("(")
+                            .push_bind_unseparated(category)
+                            .push_unseparated(",")
+                            .push_bind_unseparated(media.id)
+                            .push_unseparated(")");
+                    }
+                }
+                b.build()
+                    .execute(&self.db)
+                    .await
+                    .expect("Insert categories failed!");
+            }
+        }
+
+        let mut total_media = 0;
+        for medias in medias.chunks(SQLITE_LIMIT) {
+            let r = QueryBuilder::new("INSERT INTO medias(id, path, cover_path, cover_url, title, library, album, artist, genre, year, sample_rate, bit_depth, audio_bitrate, overall_bitrate, channels, duration_seconds, file_name, file_type) ").push_values(medias, |mut b, media| {
+                b.push_bind(media.id)
+                    .push_bind(media.path.to_string_lossy())
+                    .push_bind(media.cover_path.as_ref().and_then(|p|p.to_str()))
+                    .push_bind(&media.cover_url)
+                    .push_bind(&media.title)
+                    .push_bind(&media.library)
+                    .push_bind(&media.album)
+                    .push_bind(&media.artist)
+                    .push_bind(&media.genre)
+                    .push_bind(media.year)
+                    .push_bind(media.sample_rate)
+                    .push_bind(media.bit_depth)
+                    .push_bind(media.audio_bitrate)
+                    .push_bind(media.overall_bitrate)
+                    .push_bind(media.channels)
+                    .push_bind(media.duration_seconds as u32)
+                .push_bind(&media.file_name)
+            .push_bind(&media.file_type);
+            }).build().execute(&self.db).await.expect("Insert medias failed!");
+            total_media += r.rows_affected();
+        }
+
+        info!(
+            "{total_media} medias saved in {:.2}s",
+            start.elapsed().as_secs_f32()
+        )
+    }
+
+    pub async fn reload(&self, plgsys: &plugin_system::PluginSystem) {
         info!("Scanning all library..");
-        let newed = LibrarySystem::new(self.last_access_config.clone(), plgsys).await;
-        *self = newed;
+        let (library_paths, total_path) = self.scan().await;
+        self.perform_medias(plgsys, library_paths, total_path).await;
     }
 
-    pub async fn get_libraries(&self) -> Vec<MediaSourceInfo> {
-        self.libraries_info.values().map(|v| v.clone()).collect()
+    pub async fn get_media_file_by_id(&self, id: i64) -> Option<PathBuf> {
+        sqlx::query("SELECT path FROM medias WHERE id=? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.db)
+            .await
+            .expect("Get media file by id failed!")
+            .map(|row| {
+                let str: String = row.get("path");
+                Path::new(&str).to_path_buf()
+            })
     }
 
-    pub async fn get_albums(&self) -> Vec<MediaSourceInfo> {
-        self.albums_info.values().map(|v| v.clone()).collect()
+    pub async fn get_media_cover_file_by_id(&self, id: i64) -> Option<PathBuf> {
+        sqlx::query("SELECT cover_path FROM medias WHERE id=? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.db)
+            .await
+            .expect("Get media cover file by id failed!")
+            .map(|row| {
+                let str: String = row.get("cover_path");
+                Path::new(&str).to_path_buf()
+            })
     }
 
-    pub async fn get_categories(&self) -> Vec<MediaSourceInfo> {
-        self.categories_info.values().map(|v| v.clone()).collect()
-    }
-
-    pub async fn get_artists(&self) -> Vec<MediaSourceInfo> {
-        self.artists_info.values().map(|v| v.clone()).collect()
-    }
-
-    pub async fn get_genres(&self) -> Vec<MediaSourceInfo> {
-        self.genres_info.values().map(|v| v.clone()).collect()
-    }
-
-    pub async fn get_years(&self) -> Vec<MediaSourceInfo> {
-        self.years_info.values().map(|v| v.clone()).collect()
-    }
-
-    pub async fn get_library(&self, title: &str) -> Option<MediaSourceInfo> {
-        self.libraries_info.get(title).map(|o| o.clone())
-    }
-
-    pub async fn get_album(&self, title: &str) -> Option<MediaSourceInfo> {
-        self.albums_info.get(title).map(|o| o.clone())
-    }
-
-    pub async fn get_category(&self, title: &str) -> Option<MediaSourceInfo> {
-        self.categories_info.get(title).map(|o| o.clone())
-    }
-
-    pub async fn get_artist(&self, title: &str) -> Option<MediaSourceInfo> {
-        self.artists_info.get(title).map(|o| o.clone())
-    }
-
-    pub async fn get_genre(&self, title: &str) -> Option<MediaSourceInfo> {
-        self.genres_info.get(title).map(|o| o.clone())
-    }
-
-    pub async fn get_year(&self, title: &str) -> Option<MediaSourceInfo> {
-        self.years_info.get(title).map(|o| o.clone())
-    }
-
-    pub async fn get_medias_by_library(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
-        let values = self.lib_medias.get(title)?;
-        Some(values)
-    }
-
-    pub async fn get_medias_by_album(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
-        let values = self.album_medias.get(title)?;
-        Some(values)
-    }
-
-    pub async fn get_medias_by_category(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
-        let values = self.category_medias.get(title)?;
-        Some(values)
-    }
-
-    pub async fn get_medias_by_artist(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
-        let values = self.artist_medias.get(title)?;
-        Some(values)
-    }
-
-    pub async fn get_medias_by_genre(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
-        let values = self.genre_medias.get(title)?;
-        Some(values)
-    }
-
-    pub async fn get_medias_by_year(&self, title: &str) -> Option<&Vec<ArcMediaInfo>> {
-        let values = self.year_medias.get(title)?;
-        Some(values)
-    }
-
-    pub async fn get_media_file_by_id(&self, id: &DiosicID) -> Option<PathBuf> {
-        match self.medias_path.get(&id) {
-            Some(m) => Some(m.clone()),
-            None => None,
-        }
-    }
-
-    pub async fn get_media_cover_by_id(&self, id: &DiosicID) -> Option<&PathBuf> {
-        self.covers.get(&id)
-    }
-
-    pub async fn get_media_info_by_id(&self, id: &DiosicID) -> Option<ArcMediaInfo> {
-        if let Some(m) = self.medias_info.get(&id) {
-            Some(m.clone())
+    pub async fn get_media_info_by_id(&self, id: i64) -> Option<MediaInfo> {
+        if let Some(row) = sqlx::query("SELECT * FROM medias WHERE id = ? LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.db)
+            .await
+            .expect("Get media by id failed!")
+        {
+            Some(self.from_row(row).await)
         } else {
             None
         }
     }
 
-    pub async fn get_medias_by_search(
+    pub fn get_sources_core_query<'a>(
         &self,
-        search: &str,
-        source: &str,
-        filter: &str,
-        is_filter: bool,
-        index: usize,
-        limit: usize,
-    ) -> Vec<ArcMediaInfo> {
-        let empty: Vec<ArcMediaInfo> = Vec::new();
-
-        let all_media: Vec<ArcMediaInfo>;
-        let medias: &Vec<ArcMediaInfo> = if is_filter {
-            self.get_medias_by_source_with_filter(source, filter)
-                .await
-                .unwrap_or(&empty)
-        } else {
-            all_media = self.medias_info.values().map(|m| m.clone()).collect();
-            &all_media
+        main: &str,
+        source: Source<'a>,
+    ) -> QueryBuilder<'a, Sqlite> {
+        let mut builder = QueryBuilder::new(main);
+        match source {
+            Source::Any => (),
+            Source::Library(_) => {
+                builder.push(" GROUP BY library");
+            }
+            Source::Category(_) => {
+                builder.push(" GROUP BY category_title");
+            }
+            Source::Album(_) => {
+                builder.push(" GROUP BY album");
+            }
+            Source::Artist(_) => {
+                builder.push(" GROUP BY artist");
+            }
+            Source::Genre(_) => {
+                builder.push(" GROUP BY genre");
+            }
+            Source::Year(_) => {
+                builder.push(" WHERE year > 0 GROUP BY year");
+            }
         };
-        self.search_medias_core(medias, search, index, limit).await
+        builder
     }
 
-    async fn search_medias_core(
+    pub async fn get_sources<'a>(
         &self,
-        medias: &Vec<ArcMediaInfo>,
-        search: &str,
+        source: Source<'a>,
         index: usize,
         limit: usize,
-    ) -> Vec<ArcMediaInfo> {
-        fn get_result(index: usize, limit: usize, result: &Vec<ArcMediaInfo>) -> Vec<ArcMediaInfo> {
-            let max = {
-                let m = index + limit;
-                if m > result.len() {
-                    result.len()
-                } else {
-                    m
-                }
-            };
-            result[index..max].to_vec()
-        }
-        let index = index * limit;
-        {
-            let last = self.last_search_medias.read().await;
-            if let Some((last_search, medias)) = last.as_ref() {
-                if search == last_search {
-                    return get_result(index, limit, medias);
-                }
-            }
-        }
-
-        let mut arr = Vec::with_capacity(30);
-        for m in medias {
-            if m.contains(search) {
-                arr.push(m.clone());
-            }
-        }
-        let result = get_result(index, limit, &arr);
-        self.last_search_medias
-            .write()
+    ) -> Vec<SourceInfo> {
+        let col = match source {
+            Source::Category(_) => "category_title",
+            Source::Album(_) => "album",
+            Source::Artist(_) => "artist",
+            Source::Genre(_) => "genre",
+            Source::Year(_) => "CAST(year AS TEXT)",
+            _ => "library",
+        };
+        let table = match source {
+            Source::Category(_) => "media_categories",
+            _ => "medias",
+        };
+        let main = format!("SELECT COUNT(1) AS count, {col} AS label FROM {table}");
+        let mut builder = self.get_sources_core_query(&main, source);
+        let rows = builder
+            .push(" LIMIT ")
+            .push_bind(limit as i64)
+            .push(" OFFSET ")
+            .push_bind((index * limit) as i64)
+            .build()
+            .fetch_all(&self.db)
             .await
-            .replace((search.to_owned(), arr));
+            .expect("Get all source failed!");
+        let mut result = Vec::with_capacity(rows.len());
+        for row in rows {
+            result.push(SourceInfo {
+                title: row.get("label"),
+                total_media: row.get("count"),
+            })
+        }
         result
     }
 
-    pub async fn get_medias_by_source_with_filter(
-        &self,
-        source: &str,
-        filter: &str,
-    ) -> Option<&Vec<ArcMediaInfo>> {
-        match source {
-            "library" => self.get_medias_by_library(filter).await,
-            "album" => self.get_medias_by_album(filter).await,
-            "category" => self.get_medias_by_category(filter).await,
-            "artist" => self.get_medias_by_artist(filter).await,
-            "genre" => self.get_medias_by_genre(filter).await,
-            "year" => self.get_medias_by_year(filter).await,
-            _ => return None,
-        }
+    pub async fn get_total_source<'a>(&self, source: Source<'a>) -> usize {
+        let col = match source {
+            Source::Category(_) => "category_title",
+            Source::Album(_) => "album",
+            Source::Artist(_) => "artist",
+            Source::Genre(_) => "genre",
+            Source::Year(_) => "year",
+            _ => "library",
+        };
+        let table = match source {
+            Source::Category(_) => "media_categories",
+            _ => "medias",
+        };
+        let wq = match source {
+            Source::Year(_) => "WHERE year > 0",
+            _ => "",
+        };
+        let main = format!("SELECT COUNT(DISTINCT {col}) AS count FROM {table} {wq}");
+        QueryBuilder::new(&main)
+            .build()
+            .fetch_optional(&self.db)
+            .await
+            .expect("Get total media failed!")
+            .map(|row| row.get::<u32, _>("count") as usize)
+            .unwrap_or(0)
     }
-}
 
-impl MediaInfo {
-    pub fn contains(&self, content: &str) -> bool {
-        let content = content.to_lowercase();
-        let title = self.title.to_lowercase();
-        let album = self.album.to_lowercase();
-        let artist = self.artist.to_lowercase();
-        let year = self.year.to_lowercase();
-        let genre = self.genre.to_lowercase();
-        let library = self.library.to_lowercase();
-        let categories: Vec<String> = self.categories.iter().map(|c| c.to_lowercase()).collect();
-        if title.contains(&content)
-            || album.contains(&content)
-            || artist.contains(&content)
-            || year.contains(&content)
-            || genre.contains(&content)
-            || library.contains(&content)
-            || categories.contains(&content)
-        {
-            true
-        } else {
-            false
+    pub fn get_medias_core_query<'a>(
+        &self,
+        main: &str,
+        source: Source<'a>,
+        to_search: Option<&str>,
+    ) -> QueryBuilder<'a, Sqlite> {
+        let mut builder = QueryBuilder::new(main);
+
+        let exists_source = match source {
+            Source::Any => false,
+            _ => true,
+        };
+        let is_search = to_search.is_some() && !to_search.as_ref().unwrap().trim().is_empty();
+        if exists_source || is_search {
+            builder.push(" WHERE");
+        }
+        match source {
+            Source::Any => (),
+            Source::Library(v) => {
+                if let Some(v) = v {
+                    builder.push(" library = ").push_bind(v);
+                }
+            }
+            Source::Category(v) => {
+                if let Some(v) = v {
+                    builder.push(" category_title = ").push_bind(v);
+                }
+            }
+            Source::Album(v) => {
+                if let Some(v) = v {
+                    builder.push(" album = ").push_bind(v);
+                }
+            }
+            Source::Artist(v) => {
+                if let Some(v) = v {
+                    builder.push(" artist = ").push_bind(v);
+                }
+            }
+            Source::Genre(v) => {
+                if let Some(v) = v {
+                    builder.push(" genre = ").push_bind(v);
+                }
+            }
+            Source::Year(v) => {
+                if v > 0 {
+                    builder.push(" year = ").push_bind(v);
+                }
+            }
+        };
+        if is_search {
+            let search = to_search.unwrap();
+            if exists_source {
+                builder.push(" AND");
+            }
+            let v = format!("%{search}%");
+            builder
+                .push(" (title LIKE ")
+                .push_bind(v.clone())
+                .push(" OR album LIKE ")
+                .push_bind(v.clone())
+                .push(" OR artist LIKE ")
+                .push_bind(v.clone())
+                .push(" OR genre LIKE ")
+                .push_bind(v.clone())
+                .push(")");
+        }
+        builder
+    }
+
+    pub async fn get_medias<'a>(
+        &self,
+        source: Source<'a>,
+        to_search: Option<&str>,
+        index: usize,
+        limit: usize,
+    ) -> Vec<MediaInfo> {
+        let main = match source {
+            Source::Category(_) => {
+                "SELECT * FROM medias INNER JOIN media_categories ON media_categories.media_id = id"
+            }
+            _ => "SELECT * FROM medias",
+        };
+        let mut builder = self.get_medias_core_query(main, source, to_search);
+        let rows = builder
+            .push(" LIMIT ")
+            .push_bind(limit as i64)
+            .push(" OFFSET ")
+            .push_bind((index * limit) as i64)
+            .build()
+            .fetch_all(&self.db)
+            .await
+            .expect("Get all medias failed!");
+        let mut result = Vec::with_capacity(rows.len());
+        for row in rows {
+            result.push(self.from_row(row).await);
+        }
+        result
+    }
+
+    pub async fn get_total_media<'a>(&self, source: Source<'a>, to_search: Option<&str>) -> usize {
+        let main = match source {
+            Source::Category(_) => "SELECT COUNT(1) AS count FROM medias INNER JOIN media_categories ON media_categories.media_id = id",
+            _ => "SELECT COUNT(1) AS count FROM medias"
+        };
+        self.get_medias_core_query(main, source, to_search)
+            .build()
+            .fetch_optional(&self.db)
+            .await
+            .expect("Get total media failed!")
+            .map(|row| row.get::<u32, _>("count") as usize)
+            .unwrap_or(0)
+    }
+
+    pub async fn from_row(&self, row: SqliteRow) -> MediaInfo {
+        let id = row.get("id");
+        MediaInfo {
+            id,
+            title: row.get("title"),
+            album: row.get("album"),
+            artist: row.get("artist"),
+            genre: row.get("genre"),
+            year: row.get("year"),
+            library: row.get("library"),
+            path: Path::new(&row.get::<String, _>("path")).to_path_buf(),
+            cover_path: {
+                let str: Option<String> = row.get("cover_path");
+                str.map(|p| Path::new(&p).to_path_buf())
+            },
+            cover_url: row.get("cover_url"),
+            categories: sqlx::query("SELECT category_title FROM media_categories WHERE media_id=?")
+                .bind(id)
+                .fetch_all(&self.db)
+                .await
+                .expect("Fetch all categories failed!")
+                .into_iter()
+                .map(|row| row.get("category_title"))
+                .collect(),
+            sample_rate: row.get("sample_rate"),
+            bit_depth: row.get("bit_depth"),
+            audio_bitrate: row.get("audio_bitrate"),
+            overall_bitrate: row.get("overall_bitrate"),
+            channels: row.get("channels"),
+            duration_seconds: row.get("duration_seconds"),
+            file_name: row.get("file_name"),
+            file_type: row.get("file_type"),
         }
     }
 }

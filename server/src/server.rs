@@ -6,12 +6,12 @@ use actix_web::{
     web::{self},
     App, Error, HttpRequest, HttpServer,
 };
-use tokio::{sync::RwLock, time::Instant};
+use tokio::time::Instant;
 use tracing::info;
 use tracing_actix_web::TracingLogger;
 
 use crate::{
-    config::{Config, SetupConfigHelper}, library_system::LibrarySystem, plugin_system::PluginSystem,
+    config::Config, library_system::LibrarySystem, plugin_system::PluginSystem,
     user_system::UserSystem,
 };
 
@@ -20,64 +20,44 @@ mod dto;
 mod error;
 mod from_requests;
 
-pub struct ServerData {
+pub struct AppState {
     pub user_system: UserSystem,
     pub library_system: LibrarySystem,
     pub plugin_system: PluginSystem,
-    pub setup_config_helper: Arc<SetupConfigHelper>
+    pub config: Arc<Config>,
 }
 
-pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
-    info!("Running server in {}:{}", &config.address, &config.port);
-    let usersys = web::Data::new(s.user_system);
-    let libsys = web::Data::new(RwLock::new(s.library_system));
-    let plgsys = web::Data::new(RwLock::new(s.plugin_system));
+pub async fn run(config: Arc<Config>, s: AppState) -> Result<(), std::io::Error> {
+    info!("Running server in {}:{}", &config.host, &config.port);
+    let state = web::Data::new(s);
     let start = web::Data::new(Instant::now());
-    let setup = web::Data::new(s.setup_config_helper);
 
     HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
             .wrap(Cors::permissive())
-            .app_data(usersys.clone())
-            .app_data(libsys.clone())
-            .app_data(plgsys.clone())
+            .app_data(state.clone())
             .app_data(start.clone())
-            .app_data(setup.clone())
             .service(
                 web::scope("api")
                     .service(api::get_server_info)
-                    .service(api::setup_info)
                     .service(api::setup)
                     .service(api::get_media_file)
                     .service(api::get_media_cover)
                     .service(api::get_media_info)
-                    .service(api::search_media)
-                    .service(api::get_libraries)
-                    .service(api::get_albums)
-                    .service(api::get_categories)
-                    .service(api::get_artists)
-                    .service(api::get_genres)
-                    .service(api::get_years)
-                    .service(api::get_library_info)
-                    .service(api::get_album_info)
-                    .service(api::get_category_info)
-                    .service(api::get_artist_info)
-                    .service(api::get_genre_info)
-                    .service(api::get_year_info)
+                    .service(api::get_medias)
+                    .service(api::get_sources)
                     .service(api::get_medias)
                     .service(api::create_user)
                     .service(api::delete_user)
                     .service(api::get_user)
                     .service(api::get_users)
-                    .service(api::search_user)
                     .service(api::update_user)
                     .service(api::login_user)
                     .service(api::logout_user)
                     .service(api::get_current_user)
-                    .service(api::scan_libraries)
-                    .service(api::scan_plugins)
-                    .service(api::get_plugin)
+                    .service(api::reload_medias)
+                    .service(api::reload_plugins),
             )
             .service(
                 actix_files::Files::new("/", "./webpage")
@@ -86,7 +66,7 @@ pub async fn run(config: &Config, s: ServerData) -> Result<(), std::io::Error> {
             )
             .default_service(web::to(index))
     })
-    .bind((config.address.to_owned(), config.port))?
+    .bind((config.host.to_owned(), config.port))?
     .run()
     .await?;
 
