@@ -1,31 +1,24 @@
 {
-  "name": "diosic-web",
+  "name": "nuxt-app",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
-    "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@element-plus/icons-vue": "^2.0.10",
     "aplayer": "^1.10.1",
-    "axios": "^1.1.2",
-    "element-plus": "^2.2.18",
-    "js-cookie": "^3.0.1",
-    "vue": "^3.2.37",
-    "vue-router": "^4.1.5"
+    "howler": "^2.2.4",
+    "yup": "^1.4.0"
   },
   "devDependencies": {
-    "@types/js-cookie": "^3.0.2",
-    "@vitejs/plugin-vue": "^3.1.0",
-    "path": "^0.12.7",
-    "typescript": "^4.6.4",
-    "unplugin-auto-import": "^0.11.2",
-    "unplugin-icons": "^0.14.11",
-    "unplugin-vue-components": "^0.22.8",
-    "vite": "^3.1.0",
-    "vue-tsc": "^0.40.4"
-  }
+    "@iconify-json/mdi": "^1.1.66",
+    "@nuxt/ui": "^2.15.2",
+    "@types/howler": "^2.2.11",
+    "nuxt": "^3.11.2"
+  },
+  "packageManager": "pnpm@9.0.6+sha512.f6d863130973207cb7a336d6b439a242a26ac8068077df530d6a86069419853dc1ffe64029ec594a9c505a3a410d19643c870aba6776330f5cfddcf10a9c1617"
 }
