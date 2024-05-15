@@ -15,5 +15,5 @@ export async function getMedias(query: GetMediasQuery) {
 }
 
 export async function getMedia(id: number) {
-    return useApiFetch<PubMediaInfo>(`/medias/${id}`)
+    return useApiFetch<PubMediaInfo>(`/media_info/${id}`)
 }

@@ -1,10 +1,25 @@
 <script setup lang="ts">
+
 const props = defineProps<{
     state: MediaPlayerState,
 }>();
 
 const isPlaylistOpen = ref(false);
 const player = useMediaPlayer();
+const pagination = reactive({
+    page: 1,
+    limit: 10,
+})
+const medias = ref<MixedMedia[]>([]);
+function fetchRealMedias() {
+    const index = (pagination.page - 1) * pagination.limit;
+    medias.value = props.state.playlist.slice(index, index + pagination.limit);
+}
+watch(props.state, () => {
+    if (player.total() > 0) {
+        fetchRealMedias();
+    }
+});
 
 function changeMode() {
     let mode = props.state.mode;
@@ -22,6 +37,11 @@ function changePlaying() {
     } else {
         player.resume();
     }
+}
+
+function openList() {
+    pagination.page = Math.floor(props.state.currentIndex / pagination.limit) + 1
+    isPlaylistOpen.value = true;
 }
 
 function closePlayer() {
@@ -94,7 +114,7 @@ function closePlayer() {
                         <UIcon v-else name="i-mdi-shuffle-variant" class="size-6" />
                     </template>
                 </UButton>
-                <UButton icon="i-mdi-playlist-music" variant="soft" size="xl" @click="isPlaylistOpen = true" />
+                <UButton icon="i-mdi-playlist-music" variant="soft" size="xl" @click="openList()" />
                 <UButton icon="i-mdi-close" variant="soft" size="xl" @click="closePlayer()" />
             </div>
         </div>
@@ -117,45 +137,54 @@ function closePlayer() {
                             @click="isPlaylistOpen = false" />
                     </div>
                 </template>
+                <div class="flex flex-col justify-center gap-2">
+                    <UPagination v-model="pagination.page" :page-count="pagination.limit"
+                        @update:model-value="fetchRealMedias()" :total="player.total() ?? 0" />
 
-                <div class="flex flex-col justify-center gap-2" v-for="media in state.playlist">
-                    <div class="flex flex-row items-center justify-between gap-2">
-                        <div :class="media === state.current ? `text-primary` : ``" @click="player.skipTo(media)">
-                            <div
-                                class="flex flex-col justify-center gap-2 flex-1 w-full hover:text-primary-400 hover:cursor-pointer">
-                                <div class="flex flex-col gap-1">
-                                    <span class="font-bold text-sm line-clamp-1">{{
-                                        media.title
-                                        }}</span>
-                                    <div class="flex flex-row flex-wrap gap-2 items-center  ">
-                                        <div class="flex flex-row items-center gap-1">
-                                            <UIcon name="i-mdi-account-music-outline" />
-                                            <span class="text-gray-400 text-xs line-clamp-1">{{ media.artist
-                                                }}</span>
-                                        </div>
-                                        <div class="flex flex-row items-center gap-1">
-                                            <UIcon name="i-mdi-album" />
-                                            <span class="text-gray-400 text-xs line-clamp-1">{{ media.album
-                                                }}</span>
-                                        </div>
-                                        <div class="flex flex-row items-center gap-1">
-                                            <span v-if="media.bit_depth" class="text-gray-400 text-xs line-clamp-1">{{
-                                                media.bit_depth }}-bit</span>
-                                            <UBadge variant="soft" size="xs" :label="media.file_type" />
-                                        </div>
-                                        <span class="text-gray-400 text-xs">{{
-                                            toHHMMSS(media.duration_seconds) }}</span>
-                                        <div v-if="media === state.current">
-                                            <span v-if="state.playing" class="text-primary text-xs shake">Playing</span>
-                                            <span v-else class="text-primary text-xs">Paused</span>
+                    <div class="flex flex-col justify-center gap-2" v-for="(media, i) in medias">
+                        <div class="flex flex-row items-center justify-between gap-2">
+                            <div :class="media === state.current ? `text-primary` : ``" @click="player.skipTo(media)">
+                                <div
+                                    class="flex flex-col justify-center gap-2 flex-1 w-full hover:text-primary-400 hover:cursor-pointer">
+                                    <div class="flex flex-col gap-1">
+                                        <span class="font-bold text-sm line-clamp-1">{{
+                                            media.title
+                                            }}</span>
+                                        <div class="flex flex-row flex-wrap gap-2 items-center  ">
+                                            <div class="flex flex-row items-center gap-1">
+                                                <UIcon name="i-mdi-account-music-outline" />
+                                                <span class="text-gray-400 text-xs line-clamp-1">{{ media.artist
+                                                    }}</span>
+                                            </div>
+                                            <div class="flex flex-row items-center gap-1">
+                                                <UIcon name="i-mdi-album" />
+                                                <span class="text-gray-400 text-xs line-clamp-1">{{ media.album
+                                                    }}</span>
+                                            </div>
+                                            <div class="flex flex-row items-center gap-1">
+                                                <span v-if="media.bit_depth"
+                                                    class="text-gray-400 text-xs line-clamp-1">{{
+                                                        media.bit_depth }}-bit</span>
+                                                <UBadge variant="soft" size="xs" :label="media.file_type" />
+                                            </div>
+                                            <span class="text-gray-400 text-xs">{{
+                                                toHHMMSS(media.duration_seconds) }}</span>
+                                            <div v-if="media === state.current">
+                                                <span v-if="state.playing"
+                                                    class="text-primary text-xs shake">Playing</span>
+                                                <span v-else class="text-primary text-xs">Paused</span>
+                                            </div>
+                                            <div v-else-if="state.playedIndices.has(i)">
+                                                <span class="text-gray-400 text-xs shake">Played</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
+                            <UButton icon="i-mdi-close" variant="link" @click="player.remove(media)" />
                         </div>
-                        <UButton icon="i-mdi-close" variant="link" @click="player.remove(media)" />
+                        <UDivider />
                     </div>
-                    <UDivider />
                 </div>
             </UCard>
         </UModal>
