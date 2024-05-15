@@ -3,7 +3,8 @@ import type { PubMediaInfo, GetMediasQuery, ListSlice } from "./model";
 
 export function getMediaFileAddress(id: number): string {
     const auth = useCookie(AUTH_COOKIE_NAME).value;
-    const origin = import.meta.dev? 'http://127.0.0.1:3177' : location.origin;
+    const config = useRuntimeConfig();  
+    const origin = import.meta.dev? config.public.devBaseUrl : config.public.baseUrl;
     return `${origin}/api/media_file/${id}?auth=${auth}`;
 }
 

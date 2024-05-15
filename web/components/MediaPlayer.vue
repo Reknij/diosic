@@ -1,8 +1,4 @@
 <script setup lang="ts">
-import type { PubMediaInfo } from '~/api/model';
-import { type MediaPlayerState, PlayMode, useMediaPlayer } from '~/composables/player';
-
-const DEFAULT_COVER = '/default_cover.jpg';
 const props = defineProps<{
     state: MediaPlayerState,
 }>();
@@ -28,17 +24,6 @@ function changePlaying() {
     }
 }
 
-function toHHMMSS(sec_num: number) {
-    const hours = Math.floor(sec_num / 3600);
-    const minutes = Math.floor((sec_num - (hours * 3600)) / 60);
-    const seconds = sec_num - (hours * 3600) - (minutes * 60);
-
-    return [hours, minutes, seconds]
-        .map(v => v < 10 ? "0" + v : v)
-        .filter((v, i) => v !== "00" || i > 0)
-        .join(":");
-}
-
 function closePlayer() {
     player.stop();
     player.hide();
@@ -49,8 +34,18 @@ function closePlayer() {
     <div v-if="state.visible">
         <div v-if="state.current"
             class="bg-white border-t border-gray-200 dark:border-gray-700 border-gray-200 dark:bg-gray-900 flex flex-col md:flex-row items-center gap-2 p-2 w-full">
-            <div class="flex flex-row items-center justify-center gap-2 flex-1">
-                <img class="w-20 aspect-square rounded" :src="setAuthQuery(state.current.cover_url) ?? DEFAULT_COVER" />
+            <div class="flex flex-row items-center justify-center gap-2 w-full">
+                <div class="flex items-center justify-center size-16 shrink-0">
+                    <img loading="lazy" class="size-full rounded object-cover" v-if="state.current.cover_url"
+                        :src="setAuthQuery(state.current.cover_url)" :onerror="() => {
+                            if (state.current) state.current.cover_url = undefined;
+                        }">
+                    <svg v-else class="text-gray-300 size-full rounded object-cover" xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24">
+                        <path fill="currentColor"
+                            d="M16 9h-3v5.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 8 14.5a2.5 2.5 0 0 1 2.5-2.5c.57 0 1.08.19 1.5.5V7h4zm-4-7a10 10 0 0 1 10 10a10 10 0 0 1-10 10A10 10 0 0 1 2 12A10 10 0 0 1 12 2m0 2a8 8 0 0 0-8 8a8 8 0 0 0 8 8a8 8 0 0 0 8-8a8 8 0 0 0-8-8" />
+                    </svg>
+                </div>
                 <div class="flex flex-col gap-1 w-full">
                     <div class="flex flex-col gap-1">
                         <span class="font-bold text-sm line-clamp-1">{{ state.current.title }}</span>
@@ -125,13 +120,13 @@ function closePlayer() {
 
                 <div class="flex flex-col justify-center gap-2" v-for="media in state.playlist">
                     <div class="flex flex-row items-center justify-between gap-2">
-                        <div :class="media === state.current ? `text-primary` : ``"  @click="player.skipTo(media)">
+                        <div :class="media === state.current ? `text-primary` : ``" @click="player.skipTo(media)">
                             <div
                                 class="flex flex-col justify-center gap-2 flex-1 w-full hover:text-primary-400 hover:cursor-pointer">
                                 <div class="flex flex-col gap-1">
                                     <span class="font-bold text-sm line-clamp-1">{{
                                         media.title
-                                    }}</span>
+                                        }}</span>
                                     <div class="flex flex-row flex-wrap gap-2 items-center  ">
                                         <div class="flex flex-row items-center gap-1">
                                             <UIcon name="i-mdi-account-music-outline" />

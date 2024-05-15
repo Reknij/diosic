@@ -3,7 +3,6 @@ import { getMedias } from '~/api/media';
 import type { GetMediasQuery, PubMediaInfo, Source } from '~/api/model';
 import { PlayMode, useMediaPlayer, useMediaPlayerState } from '~/composables/player';
 
-const DEFAULT_COVER = '/default_cover.jpg';
 const props = defineProps<{
     source: Source,
     filter?: string,
@@ -20,6 +19,7 @@ const query = reactive<GetMediasQuery>({
 const { data: medias } = await getMedias(query);
 
 async function searchClicked() {
+    query.index = 0;
     query.to_search = searchValue.value;
 }
 const player = useMediaPlayer();
@@ -70,6 +70,14 @@ function getMoreActions(media: PubMediaInfo) {
                     player.push(media);
                     player.show();
                 }
+            },
+            {
+                icon: 'i-heroicons-photo',
+                label: 'Open cover',
+                disabled: !media.cover_url,
+                click() {
+                    window.open(media.cover_url, '_blank');
+                }
             }
         ]
     ]
@@ -97,14 +105,12 @@ function getMoreActions(media: PubMediaInfo) {
             class="grid grid-flow-row auto-rows-fr grid-cols-2 min-[410px]:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-9 min-[1920px]:grid-cols-12 gap-2 justify-items-center">
             <div class="relative wild-card wild-card-btn hover:!cursor-default flex flex-col items-center justify-center w-full !h-full"
                 v-for="media in medias?.items">
-                <div class="flex items-center w-full h-full rounded">
-                    <img class="aspect-square w-full rounded" v-if="media.cover_url" :src="setAuthQuery(media.cover_url) ?? DEFAULT_COVER" :onerror="() => {
-                        // @ts-ignore
-                        this.onerror = null;
-                        // @ts-ignore
-                        this.src = DEFAULT_COVER;
-                    }">
-                    <svg v-else class="text-gray-300 aspect-square w-full rounded" xmlns="http://www.w3.org/2000/svg"
+                <div class="flex items-center justify-center size-full">
+                    <img loading="lazy" class="size-full rounded object-cover" v-if="media.cover_url"
+                        :src="setAuthQuery(media.cover_url)" :onerror="() => {
+                            media.cover_url = undefined;
+                        }">
+                    <svg v-else class="text-gray-300 size-full rounded object-cover" xmlns="http://www.w3.org/2000/svg"
                         viewBox="0 0 24 24">
                         <path fill="currentColor"
                             d="M16 9h-3v5.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 8 14.5a2.5 2.5 0 0 1 2.5-2.5c.57 0 1.08.19 1.5.5V7h4zm-4-7a10 10 0 0 1 10 10a10 10 0 0 1-10 10A10 10 0 0 1 2 12A10 10 0 0 1 12 2m0 2a8 8 0 0 0-8 8a8 8 0 0 0 8 8a8 8 0 0 0 8-8a8 8 0 0 0-8-8" />

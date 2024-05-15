@@ -11,9 +11,11 @@ export enum PlayMode {
 
 export interface MediaPlayerState {
     visible: boolean,
-    current?: PubMediaInfo,
+    current: PubMediaInfo | undefined,
     currentIndex: number,
     currentElapsedSeconds: number,
+    _elapsedSecondsHandler: number,
+    _setSeekHandler: number,
     playlist: PubMediaInfo[],
     playing: boolean,
     mode: PlayMode
@@ -23,8 +25,11 @@ export const useMediaPlayerState = () => useState<MediaPlayerState>('mediaPlayer
     const state: MediaPlayerState = {
         visible: false,
         playing: false,
+        current: undefined,
         currentIndex: -1,
         currentElapsedSeconds: 0,
+        _elapsedSecondsHandler: -1,
+        _setSeekHandler: -1,
         playlist: [],
         mode: PlayMode.Order,
     };
@@ -41,6 +46,20 @@ function unloadHowl() {
         useSound().value = undefined;
     }
 }
+
+function setElapsedTime(clearOnly: boolean = false) {
+    const state = useMediaPlayerState().value;
+    if (state._elapsedSecondsHandler != -1) {
+        window.clearInterval(state._elapsedSecondsHandler);
+        state._elapsedSecondsHandler = -1;
+    }
+    if (!clearOnly) {
+        state._elapsedSecondsHandler = window.setInterval(() => {
+            state.currentElapsedSeconds = useSound().value?.seek() ?? 0;
+        }, 10);
+    }
+}
+
 function loadHowl() {
     const state = useMediaPlayerState().value;
     if (state.current) {
@@ -48,17 +67,19 @@ function loadHowl() {
         const sound = new Howl({
             src: getMediaFileAddress(state.current.id),
             format: state.current.file_type,
-            onplay(soundId) {
+            onplay() {
                 state.playing = true;
-                const setSeek = () => setTimeout(() => {
-                    state.currentElapsedSeconds = Math.floor(sound.seek(soundId));
-                    if (sound.playing(soundId)) {
-                        setSeek();
-                    }
-                }, 150);
-                setSeek();
+                setElapsedTime();
+            },
+            onstop() {
+                state.playing = false;
+                setElapsedTime(true);
+            },
+            onpause() {
+                state.playing = false;
             },
             onend(soundId) {
+                state.playing = false;
                 const player = useMediaPlayer();
                 const playNext = (loop = false) => {
                     if (player.canForward()) {
@@ -66,7 +87,6 @@ function loadHowl() {
                     } else if (loop) {
                         player.playByIndex(0);
                     } else {
-                        state.playing = false;
                     }
                 }
                 switch (state.mode) {
@@ -84,7 +104,7 @@ function loadHowl() {
                             const random = Math.floor(Math.random() * state.playlist.length);
                             player.playByIndex(random);
                         } else {
-                            state.playing = false;
+                            state.currentIndex = -1;
                         }
                         break;
                     default:
@@ -101,6 +121,12 @@ function loadHowl() {
 export const useMediaPlayer = () => {
     const state = useMediaPlayerState();
     return {
+        getCurrent(): PubMediaInfo | undefined {
+            if (state.value.currentIndex > -1 && state.value.currentIndex < this.total()) {
+                return state.value.playlist[state.value.currentIndex];
+            }
+            return undefined;
+        },
         show() {
             state.value.visible = true;
         },
@@ -115,8 +141,8 @@ export const useMediaPlayer = () => {
         },
         playByIndex(index: number) {
             if (this.total() > 0 && this.total() > index && index >= 0) {
-                state.value.current = state.value.playlist[index];
                 state.value.currentIndex = index;
+                state.value.current = state.value.playlist[index];
                 loadHowl();
             }
         },
@@ -138,19 +164,15 @@ export const useMediaPlayer = () => {
             return state.value.playlist.length;
         },
         stop() {
-            state.value.current = undefined;
             state.value.currentIndex = -1;
-            state.value.currentElapsedSeconds = 0;
+            state.value.current = undefined;
             state.value.mode = PlayMode.Order;
             unloadHowl();
-            state.value.playing = false;
         },
         resume() {
-            state.value.playing = true;
             useSound().value?.play();
         },
         pause() {
-            state.value.playing = false;
             useSound().value?.pause();
         },
         canForward() {
@@ -181,9 +203,16 @@ export const useMediaPlayer = () => {
         },
         seekTo(seconds: number) {
             const sound = useSound().value;
+            const state = useMediaPlayerState().value;
             if (sound) {
+                this.pause();
                 sound.seek(seconds);
-                sound.play()
+                if (state._setSeekHandler != -1) {
+                    window.clearTimeout(state._setSeekHandler);
+                }
+                state._setSeekHandler = window.setTimeout(() => {
+                    this.resume();
+                }, 100);
             }
         },
         push(media: PubMediaInfo, target = -1) {

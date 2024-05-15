@@ -14,12 +14,13 @@ export default defineNuxtConfig({
     }
   },
   ssr: false,
+  runtimeConfig: {
+    public: {
+      baseUrl: '',
+      devBaseUrl: 'http://127.0.0.1:3177'
+    }
+  },
   nitro: {
     preset: 'static',
-    devProxy: {
-      "/api": {
-        target: "http://0.0.0.0:3177/api",
-      },
-    },
   },
 })

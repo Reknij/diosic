@@ -14,6 +14,18 @@ export function parseSource(str: string): Source {
     return Source.Any;
 }
 
+export function toHHMMSS(sec_num: number) {
+    const sec_num_floor = Math.floor(sec_num)
+    const hours = Math.floor(sec_num_floor / 3600);
+    const minutes = Math.floor((sec_num_floor - (hours * 3600)) / 60);
+    const seconds = sec_num_floor - (hours * 3600) - (minutes * 60);
+
+    return [hours, minutes, seconds]
+        .map(v => v < 10 ? "0" + v : v)
+        .filter((v, i) => v !== "00" || i > 0)
+        .join(":");
+}
+
 export function setAuthQuery(url?: string) {
     const auth = useCookie(AUTH_COOKIE_NAME).value;
     if (url && auth) {

@@ -39,8 +39,8 @@ async function reloadPluginsHandler() {
 }
 
 async function reloadAllHandler() {
-    await reloadMediasHandler();
     await reloadPluginsHandler();
+    await reloadMediasHandler();
 }
 </script>
 
@@ -52,9 +52,9 @@ async function reloadAllHandler() {
             <UButton label="Reload plugins" variant="outline" @click="reloadPluginsHandler" />
             <UButton label="Reload all" @click="reloadAllHandler" />
             <UButton label="Setup again" to="/setup" />
-            <UDivider orientation="vertical" class="w-full text-white" :ui="{container: {base: 'text-black'}}" />
+            <UDivider orientation="vertical" class="w-full text-white" :ui="{ container: { base: 'text-black' } }" />
             <span>Total media: {{ medias?.total ?? 0 }}</span>
-            <span>Server time running: {{ serverInfo?.time_running ? (serverInfo.time_running / 60).toFixed(0) + ' minutes' : 'Just started' }}</span>
+            <span>Server time running: {{ serverInfo?.time_running ? (serverInfo.time_running / 60 / 60).toFixed(1) + ' hour(s)' : 'Just started' }}</span>
             <span>Author: {{ serverInfo?.author }}</span>
             <span>Version: {{ serverInfo?.version }}</span>
         </div>
