@@ -24,7 +24,7 @@ export interface MediaPlayerState {
     _setSeekHandler: number,
     playlist: MixedMedia[],
     playlistVirtual: boolean,
-    playedIndices: Set<number>,
+    playedMediaIds: Set<number>,
     playing: boolean,
     mode: PlayMode
 }
@@ -40,7 +40,7 @@ export const useMediaPlayerState = () => useState<MediaPlayerState>('mediaPlayer
         _setSeekHandler: -1,
         playlist: [],
         playlistVirtual: false,
-        playedIndices: new Set(),
+        playedMediaIds: new Set(),
         mode: PlayMode.Order,
     };
     return state;
@@ -66,7 +66,7 @@ function setElapsedTime(clearOnly: boolean = false) {
     if (!clearOnly) {
         state._elapsedSecondsHandler = window.setInterval(() => {
             state.currentElapsedSeconds = useSound().value?.seek() ?? 0;
-        }, 10);
+        }, 50);
     }
 }
 
@@ -74,11 +74,13 @@ function loadHowl() {
     const state = useMediaPlayerState().value;
     if (state.current) {
         unloadHowl();
+        console.log(document.title)
         const sound = new Howl({
             src: getMediaFileAddress(state.current.id),
             format: state.current.file_type,
             onplay() {
                 state.playing = true;
+                if (state.current) state.playedMediaIds.add(state.current.id);
                 setElapsedTime();
             },
             onstop() {
@@ -90,41 +92,38 @@ function loadHowl() {
             },
             async onend(soundId) {
                 state.playing = false;
+                setElapsedTime(true);
+                state.currentElapsedSeconds = 0;
+
                 const player = useMediaPlayer();
                 const playNext = async (loop = false) => {
                     if (player.canForward()) {
                         player.forward();
                     } else if (loop) {
-                        await player.playByIndex(0);
+                        player.playByIndex(0);
                     } else {
                     }
                 }
-                state.playedIndices.add(state.currentIndex);
-                if (state.playedIndices.size >= player.total()) state.playedIndices.clear();
 
                 switch (state.mode) {
                     case PlayMode.Order:
-                        await playNext();
+                        playNext();
                         break;
                     case PlayMode.Repeat:
-                        await playNext(true);
+                        playNext(true);
                         break;
                     case PlayMode.RepeatOnce:
                         sound.play(soundId)
                         break;
                     case PlayMode.Shuffle:
-                        const total = player.total();
-                        const indices = [...Array(total).keys()]
-                        const playedList = Array.from(state.playedIndices.values());
-                        for (let i = 0; i < playedList.length; i++) {
-                            const index = playedList[i];
-                            if (index > -1 && index < total) {
-                                indices.splice(index, 1);
-                            }
+                        let nextList = [...state.playlist.filter(item => !state.playedMediaIds.has(item.id))];
+                        if (nextList.length < 1) {
+                            nextList = [...state.playlist];
+                            state.playedMediaIds.clear();
                         }
-                        if (indices.length > 0) {
-                            const random = Math.floor(Math.random() * indices.length);
-                            await player.playByIndex(random);
+                        if (nextList.length > 0) {
+                            const random = Math.floor(Math.random() * nextList.length);
+                            player.skipTo(nextList[random]);
                         }
                         break;
                     default:
@@ -153,32 +152,35 @@ export const useMediaPlayer = () => {
         hide() {
             state.value.visible = false;
         },
-        async play(media: MixedMedia, show: boolean = false) {
+        play(media: MixedMedia, show: boolean = false) {
             this.stop();
             state.value.playlist = [media];
-            state.value.playedIndices.clear();
+            state.value.playedMediaIds.clear();
             if (show) this.show();
-            await this.playByIndex(0);
+            this.playByIndex(0);
         },
-        async playByIndex(index: number) {
+        playByIndex(index: number) {
             if (this.total() > 0 && this.total() > index && index >= 0) {
                 state.value.currentIndex = index;
                 let target = state.value.playlist[index];
 
                 state.value.current = target;
+                useHead({
+                    title: target.title
+                })
                 loadHowl();
             }
         },
-        async playList(list: MixedMedia[], mode: PlayMode = PlayMode.Order, show: boolean = false) {
+        playList(list: MixedMedia[], mode: PlayMode = PlayMode.Order, show: boolean = false) {
             this.stop();
             this.setMode(mode);
             state.value.playlist = list;
             if (show) this.show();
             if (mode === PlayMode.Shuffle) {
                 const random = Math.floor(Math.random() * state.value.playlist.length);
-                await this.playByIndex(random);
+                this.playByIndex(random);
             } else {
-                await this.playByIndex(0);
+                this.playByIndex(0);
             }
         },
         setMode(mode: PlayMode) {
@@ -188,10 +190,13 @@ export const useMediaPlayer = () => {
             return state.value.playlist.length;
         },
         stop() {
+            useHead({
+                title: 'Diosic',
+            })
             state.value.currentIndex = -1;
             state.value.current = undefined;
             state.value.playlist.splice(0, this.total());
-            state.value.playedIndices.clear();
+            state.value.playedMediaIds.clear();
             state.value.mode = PlayMode.Order;
             unloadHowl();
         },
@@ -222,7 +227,7 @@ export const useMediaPlayer = () => {
             }
         },
         skipTo(media: MixedMedia) {
-            const i = state.value.playlist.indexOf(media);
+            const i = state.value.playlist.findIndex(item => item.id === media.id);
             if (i != -1) {
                 this.playByIndex(i)
             }
@@ -242,7 +247,7 @@ export const useMediaPlayer = () => {
             }
         },
         push(media: MixedMedia, target = -1) {
-            const i = state.value.playlist.indexOf(media);
+            const i = state.value.playlist.findIndex(item => item.id === media.id);
             if (i != -1) {
                 state.value.playlist.splice(i, 1);
                 if (i < target) target -= 1;
@@ -259,7 +264,7 @@ export const useMediaPlayer = () => {
             }
         },
         remove(media: MixedMedia) {
-            const i = state.value.playlist.indexOf(media);
+            const i = state.value.playlist.findIndex(item => item.id === media.id);
             if (i != -1) {
                 let toIndex = -1;
                 if (i === state.value.currentIndex) {

@@ -103,9 +103,9 @@ function getMoreActions(media: PubMediaInfo) {
 
         <div
             class="grid grid-flow-row auto-rows-fr grid-cols-2 min-[410px]:grid-cols-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-9 min-[1920px]:grid-cols-12 gap-2 justify-items-center">
-            <div class="relative wild-card wild-card-btn hover:!cursor-default flex flex-col items-center justify-center w-full !h-full"
+            <div class="relative wild-card wild-card-btn hover:!cursor-default flex flex-col items-center justify-center !size-full"
                 v-for="media in medias?.items">
-                <div class="flex items-center justify-center size-full">
+                <div class="relative flex items-center justify-center size-full">
                     <img loading="lazy" class="size-full rounded object-cover" v-if="media.cover_url"
                         :src="setAuthQuery(media.cover_url)" :onerror="() => {
                             media.cover_url = undefined;
@@ -115,10 +115,28 @@ function getMoreActions(media: PubMediaInfo) {
                         <path fill="currentColor"
                             d="M16 9h-3v5.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 8 14.5a2.5 2.5 0 0 1 2.5-2.5c.57 0 1.08.19 1.5.5V7h4zm-4-7a10 10 0 0 1 10 10a10 10 0 0 1-10 10A10 10 0 0 1 2 12A10 10 0 0 1 12 2m0 2a8 8 0 0 0-8 8a8 8 0 0 0 8 8a8 8 0 0 0 8-8a8 8 0 0 0-8-8" />
                     </svg>
+
+                    <div class="media-overlay">
+                        <div class="flex items-center justify-center w-full h-full">
+                            <UButton icon="i-mdi-play-circle" variant="link" size="xl"
+                                @click="player.play(media, true)" />
+                            <UDropdown :items="getMoreActions(media)" :popper="{ placement: 'bottom-start' }">
+                                <UButton icon="i-mdi-dots-vertical" size="xl" variant="link" />
+                            </UDropdown>
+                        </div>
+                    </div>
                 </div>
-                <div :class="state.current === media ? `w-full text-primary` : `w-full`">
+                <div :class="state.current?.id === media.id ? `w-full text-primary` : `w-full`">
                     <div class="flex flex-col justify-start p-2">
-                        <span class="font-bold text-sm line-clamp-1">{{ media.title }}</span>
+                        <div class="flex flex-row items-center gap-1">
+                            <div v-if="state.current?.id === media.id" class="flex flex-row items-center gap-1">
+                                <UIcon v-if="state.playing" name="i-mdi-music animate-bounce" />
+                                <UIcon v-else name="i-mdi-pause" />
+                            </div>
+                            <UTooltip :text="media.title">
+                                <span class="font-bold text-sm line-clamp-1">{{ media.title }}</span>
+                            </UTooltip>
+                        </div>
                         <div class="flex flex-row items-center gap-1">
                             <UIcon name="i-mdi-account-music-outline" />
                             <span class="text-gray-400 text-xs line-clamp-1">{{ media.artist }}</span>
@@ -129,14 +147,7 @@ function getMoreActions(media: PubMediaInfo) {
                         </div>
                     </div>
                 </div>
-                <div class="media-overlay">
-                    <div class="flex items-center justify-center w-full h-full">
-                        <UButton icon="i-mdi-play-circle" variant="link" size="xl" @click="player.play(media, true)" />
-                        <UDropdown :items="getMoreActions(media)" :popper="{ placement: 'bottom-start' }">
-                            <UButton icon="i-mdi-dots-vertical" size="xl" variant="link" />
-                        </UDropdown>
-                    </div>
-                </div>
+
                 <div class="lg:hidden absolute w-full h-full">
                     <div class="flex flex-col items-end justify-end w-full h-full">
                         <UDropdown :items="getMoreActions(media)" :popper="{ placement: 'bottom-start' }">

@@ -68,7 +68,11 @@ function closePlayer() {
                 </div>
                 <div class="flex flex-col gap-1 w-full">
                     <div class="flex flex-col gap-1">
-                        <span class="font-bold text-sm line-clamp-1">{{ state.current.title }}</span>
+                        <UTooltip :text="state.current.title">
+                            <span class="font-bold text-sm line-clamp-1">{{
+                                state.current.title
+                            }}</span>
+                        </UTooltip>
                         <div class="flex flex-row flex-wrap gap-2 items-center">
                             <div class="flex flex-row items-center gap-1">
                                 <UIcon name="i-mdi-account-music-outline" />
@@ -141,16 +145,27 @@ function closePlayer() {
                     <UPagination v-model="pagination.page" :page-count="pagination.limit"
                         @update:model-value="fetchRealMedias()" :total="player.total() ?? 0" />
 
-                    <div class="flex flex-col justify-center gap-2" v-for="(media, i) in medias">
+                    <div class="flex flex-col justify-center gap-2" v-for="media in medias">
                         <div class="flex flex-row items-center justify-between gap-2">
-                            <div :class="media === state.current ? `text-primary` : ``" @click="player.skipTo(media)">
+                            <div :class="state.current?.id === media.id ? `text-primary` : ``"
+                                @click="player.skipTo(media)">
                                 <div
                                     class="flex flex-col justify-center gap-2 flex-1 w-full hover:text-primary-400 hover:cursor-pointer">
                                     <div class="flex flex-col gap-1">
-                                        <span class="font-bold text-sm line-clamp-1">{{
-                                            media.title
-                                            }}</span>
+                                        <UTooltip :text="media.title">
+                                            <span class="font-bold text-sm line-clamp-1">{{
+                                                media.title
+                                                }}</span>
+                                        </UTooltip>
                                         <div class="flex flex-row flex-wrap gap-2 items-center  ">
+                                            <div v-if="state.current?.id === media.id"
+                                                class="flex flex-row items-center gap-1">
+                                                <UIcon v-if="state.playing" name="i-mdi-music animate-bounce" />
+                                                <UIcon v-else name="i-mdi-pause" />
+                                            </div>
+                                            <UIcon v-else-if="state.playedMediaIds.has(media.id)"
+                                                name="i-mdi-playlist-check" />
+
                                             <div class="flex flex-row items-center gap-1">
                                                 <UIcon name="i-mdi-account-music-outline" />
                                                 <span class="text-gray-400 text-xs line-clamp-1">{{ media.artist
@@ -169,14 +184,6 @@ function closePlayer() {
                                             </div>
                                             <span class="text-gray-400 text-xs">{{
                                                 toHHMMSS(media.duration_seconds) }}</span>
-                                            <div v-if="media === state.current">
-                                                <span v-if="state.playing"
-                                                    class="text-primary text-xs shake">Playing</span>
-                                                <span v-else class="text-primary text-xs">Paused</span>
-                                            </div>
-                                            <div v-else-if="state.playedIndices.has(i)">
-                                                <span class="text-gray-400 text-xs shake">Played</span>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
