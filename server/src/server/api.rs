@@ -202,15 +202,14 @@ pub async fn get_medias(
     }))
 }
 
-#[get("/sources/{source}")]
+#[get("/sources")]
 pub async fn get_sources(
     state: State,
-    info: web::Path<(String,)>,
     query: web::Query<dto::GetSourcesQuery>,
     permission: UserPermission,
 ) -> Result<Json<ListSlice<SourceInfo>>, APIError> {
     use crate::library_system::model::Source;
-    let source = Source::parse(&info.0, query.filter.as_ref().map(|f| f.as_str()));
+    let source = Source::parse(&query.source, query.filter.as_ref().map(|f| f.as_str()));
     if !permission.exists_owner() {
         return Err(APIError::with(NoPermission).note("Please log in first!"));
     }
@@ -405,7 +404,7 @@ pub async fn get_current_user(permission: UserPermission) -> Result<Json<UserInf
     permission.get_owner().map(|user| Json(user))
 }
 
-#[put("/medias/reload")]
+#[put("/actions/reload_medias")]
 pub async fn reload_medias(
     state: State,
     permission: UserPermission,
@@ -418,7 +417,7 @@ pub async fn reload_medias(
     }
 }
 
-#[put("/plugins/reload")]
+#[put("/actions/reload_plugins")]
 pub async fn reload_plugins(
     state: State,
     permission: UserPermission,

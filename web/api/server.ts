@@ -14,14 +14,14 @@ export async function getServerInfo() {
 }
 
 export async function reloadMedias() {
-    return useApiFetch(`/medias/reload`, {
+    return useApiFetch(`/actions/reload_medias`, {
         watch: false,
         method: 'PUT'
     })
 }
 
 export async function reloadPlugins() {
-    return useApiFetch(`/plugins/reload`, {
+    return useApiFetch(`/actions/reload_plugins`, {
         watch: false,
         method: 'PUT'
     })

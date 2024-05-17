@@ -46,7 +46,7 @@ export interface PubMediaInfo {
     library: string;
     cover_url?: string;
     categories: string[];
-    simple_rate?: number;
+    sample_rate?: number;
     bit_depth?: number;
     audio_bitrate?: number;
     overall_bitrate?: number;
@@ -64,6 +64,7 @@ export interface ListSlice<T> {
 export interface GetSourcesQuery {
     limit: number;
     index: number;
+    source: Source;
     filter?: string;
 }
 

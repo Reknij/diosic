@@ -43,6 +43,7 @@ pub struct ListSlice<T> {
 pub struct GetSourcesQuery {
     pub limit: usize,
     pub index: usize,
+    pub source: String,
     pub filter: Option<String>,
 }
 
