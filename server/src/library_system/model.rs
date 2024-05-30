@@ -29,18 +29,12 @@ pub struct SourceInfo {
 
 impl LibraryInfo {
     pub async fn fetch(&self) -> Vec<PathBuf> {
-        info!(
-            "Library `{}` with path `{:?}` fetching..",
-            self.title, self.path
-        );
+        info!("Library `{}` with path `{:?}` fetching..", self.title, self.path);
         let mut files = Vec::new();
         for entry in WalkDir::new(&self.path)
             .follow_links(false)
             .into_iter()
-            .filter_map(|e| {
-                e.ok()
-                    .and_then(|e| if e.path().is_file() { Some(e) } else { None })
-            })
+            .filter_map(|e| e.ok().and_then(|e| if e.path().is_file() { Some(e) } else { None }))
         {
             files.push(entry.into_path())
         }
@@ -54,23 +48,23 @@ impl LibraryInfo {
 #[derive(Debug, Clone, Copy)]
 pub enum Source<'a> {
     Any,
-    Library(Option<&'a str>),
-    Category(Option<&'a str>),
-    Album(Option<&'a str>),
-    Artist(Option<&'a str>),
-    Genre(Option<&'a str>),
+    Library(&'a str),
+    Category(&'a str),
+    Album(&'a str),
+    Artist(&'a str),
+    Genre(&'a str),
     Year(u32),
 }
 
 impl<'a> Source<'a> {
     pub fn parse(source: &'a str, filter: Option<&'a str>) -> Self {
         match source.to_lowercase().as_str() {
-            "library" => Self::Library(filter),
-            "category" => Self::Category(filter),
-            "album" => Self::Album(filter),
-            "artist" => Self::Artist(filter),
-            "genre" => Self::Genre(filter),
-            "year" => Self::Year(filter.map(|f| f.parse().unwrap_or(0)).unwrap_or(0)),
+            "library" if filter.is_some() => Self::Library(filter.as_ref().unwrap()),
+            "category" if filter.is_some() => Self::Category(filter.as_ref().unwrap()),
+            "album" if filter.is_some() => Self::Album(filter.as_ref().unwrap()),
+            "artist" if filter.is_some() => Self::Artist(filter.as_ref().unwrap()),
+            "genre" if filter.is_some() => Self::Genre(filter.as_ref().unwrap()),
+            "year" if filter.is_some() => Self::Year(filter.map(|f| f.parse().unwrap_or(0)).unwrap_or(0)),
             _ => Self::Any,
         }
     }
@@ -118,13 +112,7 @@ pub struct MediaInfo {
 }
 
 impl MediaInfo {
-    pub fn from_meta(
-        meta: MediaMetaInfo,
-        config: Arc<Config>,
-        library: &LibraryInfo,
-        id: i64,
-        path: PathBuf,
-    ) -> Self {
+    pub fn from_meta(meta: MediaMetaInfo, config: Arc<Config>, library: &LibraryInfo, id: i64, path: PathBuf) -> Self {
         let public_url = config.public_url.as_str();
         let categories = Self::get_categories_from_directory(&path, &library);
         Self {
@@ -136,13 +124,7 @@ impl MediaInfo {
             genre: meta.genre,
             year: meta.year,
             library: library.title.to_owned(),
-            cover_path: meta.cover.clone().and_then(|p| {
-                if p.to_str().is_some() {
-                    Some(p)
-                } else {
-                    None
-                }
-            }),
+            cover_path: meta.cover.clone().and_then(|p| if p.to_str().is_some() { Some(p) } else { None }),
             cover_url: meta.cover.and_then(|p| {
                 if p.is_file() && p.to_str().is_some() {
                     Some(format!("{public_url}/api/media_cover/{id}"))
@@ -168,8 +150,7 @@ impl MediaInfo {
             if parent != lib.path {
                 if let Some(name) = parent.file_name() {
                     categories.push(name.to_str().unwrap().to_string());
-                    let mut grandparent =
-                        Self::get_categories_from_directory(&parent.to_path_buf(), &lib);
+                    let mut grandparent = Self::get_categories_from_directory(&parent.to_path_buf(), &lib);
                     categories.append(&mut grandparent);
                 }
             }
@@ -181,13 +162,7 @@ impl MediaInfo {
 
 impl MediaMetaInfo {
     fn cover_picture_level(pic: PictureType) -> usize {
-        let mut pics = [
-            PictureType::CoverFront,
-            PictureType::LeadArtist,
-            PictureType::Illustration,
-            PictureType::Media,
-            PictureType::CoverBack,
-        ];
+        let mut pics = [PictureType::CoverFront, PictureType::LeadArtist, PictureType::Illustration, PictureType::Media, PictureType::CoverBack];
         pics.reverse();
         for (i, p) in pics.iter().enumerate() {
             if p == &pic {
@@ -269,8 +244,7 @@ impl MediaMetaInfo {
                             }
                             match cover {
                                 Some(current) => {
-                                    let current_level =
-                                        Self::cover_picture_level(current.pic_type());
+                                    let current_level = Self::cover_picture_level(current.pic_type());
                                     if new_level > current_level {
                                         cover = Some(pic);
                                     }
@@ -285,13 +259,9 @@ impl MediaMetaInfo {
                                 let cover_name = match mime {
                                     MimeType::Bmp => Some(format!("{}.bmp", file_name_without_ext)),
                                     MimeType::Gif => Some(format!("{}.gif", file_name_without_ext)),
-                                    MimeType::Jpeg => {
-                                        Some(format!("{}.jpg", file_name_without_ext))
-                                    }
+                                    MimeType::Jpeg => Some(format!("{}.jpg", file_name_without_ext)),
                                     MimeType::Png => Some(format!("{}.png", file_name_without_ext)),
-                                    MimeType::Tiff => {
-                                        Some(format!("{}.tiff", file_name_without_ext))
-                                    }
+                                    MimeType::Tiff => Some(format!("{}.tiff", file_name_without_ext)),
                                     MimeType::Unknown(unk) => {
                                         warn!("Get the cover of unknown extension `{unk}` from media.");
                                         None
@@ -306,9 +276,7 @@ impl MediaMetaInfo {
                                         .open(&save_path)
                                         .await
                                         .with_context(|| "Open to write the cover file failed!")?;
-                                    fs.write(cover.data()).await.with_context(|| {
-                                        "Write the picture data into thee file failed!"
-                                    })?;
+                                    fs.write(cover.data()).await.with_context(|| "Write the picture data into thee file failed!")?;
                                     meta.cover = Some(save_path);
                                 }
                             }

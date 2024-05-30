@@ -65,7 +65,7 @@ export interface GetSourcesQuery {
     limit: number;
     index: number;
     source: Source;
-    filter?: string;
+    to_search?: string;
 }
 
 export interface GetMediasQuery {

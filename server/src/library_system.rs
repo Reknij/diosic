@@ -86,8 +86,7 @@ impl LibrarySystem {
     }
 
     pub async fn scan(&self) -> (Vec<(LibraryInfo, Vec<PathBuf>)>, usize) {
-        let mut library_paths: Vec<(LibraryInfo, Vec<PathBuf>)> =
-            Vec::with_capacity(self.config.libraries.len());
+        let mut library_paths: Vec<(LibraryInfo, Vec<PathBuf>)> = Vec::with_capacity(self.config.libraries.len());
         let mut total_path = 0;
         for lib in &self.config.libraries {
             let files = lib.fetch().await;
@@ -101,19 +100,10 @@ impl LibrarySystem {
         (library_paths, total_path)
     }
 
-    pub async fn perform_medias(
-        &self,
-        plgsys: &plugin_system::PluginSystem,
-        library_paths: Vec<(LibraryInfo, Vec<PathBuf>)>,
-        total_path: usize,
-    ) {
+    pub async fn perform_medias(&self, plgsys: &plugin_system::PluginSystem, library_paths: Vec<(LibraryInfo, Vec<PathBuf>)>, total_path: usize) {
         let start = time::Instant::now();
         Self::recreate_tables(self.db.clone()).await;
-        let mut plugins_context = if plgsys.exists_plugins().await {
-            Some(plgsys.init_plugins_context().await)
-        } else {
-            None
-        };
+        let mut plugins_context = if plgsys.exists_plugins().await { Some(plgsys.init_plugins_context().await) } else { None };
 
         let mut media_start_id = 0;
         let mut medias_handlers = Vec::with_capacity(total_path);
@@ -136,13 +126,7 @@ impl LibrarySystem {
                         meta.cover = Some(path);
                     };
 
-                    let info = MediaInfo::from_meta(
-                        meta,
-                        config.clone(),
-                        &library,
-                        media_start_id,
-                        path.clone(),
-                    );
+                    let info = MediaInfo::from_meta(meta, config.clone(), &library, media_start_id, path.clone());
 
                     Some(info)
                 });
@@ -175,23 +159,14 @@ impl LibrarySystem {
 
         if have_category {
             for medias in medias.chunks(SQLITE_LIMIT) {
-                let mut b = QueryBuilder::new(
-                    "INSERT INTO media_categories(category_title, media_id) VALUES ",
-                );
+                let mut b = QueryBuilder::new("INSERT INTO media_categories(category_title, media_id) VALUES ");
                 let mut s = b.separated(",");
                 for media in medias {
                     for category in &media.categories {
-                        s.push("(")
-                            .push_bind_unseparated(category)
-                            .push_unseparated(",")
-                            .push_bind_unseparated(media.id)
-                            .push_unseparated(")");
+                        s.push("(").push_bind_unseparated(category).push_unseparated(",").push_bind_unseparated(media.id).push_unseparated(")");
                     }
                 }
-                b.build()
-                    .execute(&self.db)
-                    .await
-                    .expect("Insert categories failed!");
+                b.build().execute(&self.db).await.expect("Insert categories failed!");
             }
         }
 
@@ -220,10 +195,7 @@ impl LibrarySystem {
             total_media += r.rows_affected();
         }
 
-        info!(
-            "{total_media} medias saved in {:.2}s",
-            start.elapsed().as_secs_f32()
-        )
+        info!("{total_media} medias saved in {:.2}s", start.elapsed().as_secs_f32())
     }
 
     pub async fn reload(&self, plgsys: &plugin_system::PluginSystem) {
@@ -269,15 +241,10 @@ impl LibrarySystem {
         }
     }
 
-    pub fn get_sources_core_query<'a>(
-        &self,
-        main: &str,
-        source: Source<'a>,
-    ) -> QueryBuilder<'a, Sqlite> {
+    pub fn get_sources_core_query<'a>(&self, main: &str, source: Source<'a>, col: &str, to_search: Option<&str>) -> QueryBuilder<'a, Sqlite> {
         let mut builder = QueryBuilder::new(main);
         match source {
-            Source::Any => (),
-            Source::Library(_) => {
+            Source::Any | Source::Library(_) => {
                 builder.push(" GROUP BY library");
             }
             Source::Category(_) => {
@@ -296,15 +263,13 @@ impl LibrarySystem {
                 builder.push(" WHERE year > 0 GROUP BY year");
             }
         };
+        if let Some(v) = to_search {
+            builder.push(format!(" HAVING {col} LIKE ")).push_bind(format!("%{v}%"));
+        }
         builder
     }
 
-    pub async fn get_sources<'a>(
-        &self,
-        source: Source<'a>,
-        index: usize,
-        limit: usize,
-    ) -> Vec<SourceInfo> {
+    pub async fn get_sources<'a>(&self, source: Source<'a>, to_search: Option<&str>, index: usize, limit: usize) -> Vec<SourceInfo> {
         let col = match source {
             Source::Category(_) => "category_title",
             Source::Album(_) => "album",
@@ -318,7 +283,7 @@ impl LibrarySystem {
             _ => "medias",
         };
         let main = format!("SELECT COUNT(1) AS count, {col} AS label FROM {table}");
-        let mut builder = self.get_sources_core_query(&main, source);
+        let mut builder = self.get_sources_core_query(&main, source, col, to_search);
         let rows = builder
             .push(" LIMIT ")
             .push_bind(limit as i64)
@@ -365,12 +330,7 @@ impl LibrarySystem {
             .unwrap_or(0)
     }
 
-    pub fn get_medias_core_query<'a>(
-        &self,
-        main: &str,
-        source: Source<'a>,
-        to_search: Option<&str>,
-    ) -> QueryBuilder<'a, Sqlite> {
+    pub fn get_medias_core_query<'a>(&self, main: &str, source: Source<'a>, to_search: Option<&str>) -> QueryBuilder<'a, Sqlite> {
         let mut builder = QueryBuilder::new(main);
 
         let exists_source = match source {
@@ -384,29 +344,19 @@ impl LibrarySystem {
         match source {
             Source::Any => (),
             Source::Library(v) => {
-                if let Some(v) = v {
-                    builder.push(" library = ").push_bind(v);
-                }
+                builder.push(" library = ").push_bind(v);
             }
             Source::Category(v) => {
-                if let Some(v) = v {
-                    builder.push(" category_title = ").push_bind(v);
-                }
+                builder.push(" category_title = ").push_bind(v);
             }
             Source::Album(v) => {
-                if let Some(v) = v {
-                    builder.push(" album = ").push_bind(v);
-                }
+                builder.push(" album = ").push_bind(v);
             }
             Source::Artist(v) => {
-                if let Some(v) = v {
-                    builder.push(" artist = ").push_bind(v);
-                }
+                builder.push(" artist = ").push_bind(v);
             }
             Source::Genre(v) => {
-                if let Some(v) = v {
-                    builder.push(" genre = ").push_bind(v);
-                }
+                builder.push(" genre = ").push_bind(v);
             }
             Source::Year(v) => {
                 if v > 0 {
@@ -434,17 +384,9 @@ impl LibrarySystem {
         builder
     }
 
-    pub async fn get_medias<'a>(
-        &self,
-        source: Source<'a>,
-        to_search: Option<&str>,
-        index: usize,
-        limit: usize,
-    ) -> Vec<MediaInfo> {
+    pub async fn get_medias<'a>(&self, source: Source<'a>, to_search: Option<&str>, index: usize, limit: usize) -> Vec<MediaInfo> {
         let main = match source {
-            Source::Category(_) => {
-                "SELECT * FROM medias INNER JOIN media_categories ON media_categories.media_id = id"
-            }
+            Source::Category(_) => "SELECT * FROM medias INNER JOIN media_categories ON media_categories.media_id = id",
             _ => "SELECT * FROM medias",
         };
         let mut builder = self.get_medias_core_query(main, source, to_search);
@@ -467,7 +409,7 @@ impl LibrarySystem {
     pub async fn get_total_media<'a>(&self, source: Source<'a>, to_search: Option<&str>) -> usize {
         let main = match source {
             Source::Category(_) => "SELECT COUNT(1) AS count FROM medias INNER JOIN media_categories ON media_categories.media_id = id",
-            _ => "SELECT COUNT(1) AS count FROM medias"
+            _ => "SELECT COUNT(1) AS count FROM medias",
         };
         self.get_medias_core_query(main, source, to_search)
             .build()

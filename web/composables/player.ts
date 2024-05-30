@@ -258,6 +258,12 @@ export const useMediaPlayer = () => {
             }
             state.value.playlist.push(media);
         },
+        pushList(medias: MixedMedia[]) {
+            for (let i = 0; i < medias.length; i++) {
+                const media = medias[i];
+                this.push(media);
+            }
+        },
         clear() {
             if (this.total() > 0) {
                 state.value.playlist.splice(0, this.total());
@@ -279,6 +285,12 @@ export const useMediaPlayer = () => {
                 if (toIndex != -1) {
                     this.playByIndex(toIndex);
                 }
+            }
+        },
+        removeList(medias: MixedMedia[]) {
+            for (let i = 0; i < medias.length; i++) {
+                const media = medias[i];
+                this.remove(media);
             }
         }
     }

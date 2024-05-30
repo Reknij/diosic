@@ -39,7 +39,7 @@ pub async fn run(config: Arc<Config>, s: AppState) -> Result<(), std::io::Error>
             .app_data(state.clone())
             .app_data(start.clone())
             .service(
-                web::scope("api")
+                web::scope("/api")
                     .service(api::get_server_info)
                     .service(api::setup)
                     .service(api::get_media_file)

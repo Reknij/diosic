@@ -44,7 +44,7 @@ pub struct GetSourcesQuery {
     pub limit: usize,
     pub index: usize,
     pub source: String,
-    pub filter: Option<String>,
+    pub to_search: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -18,6 +18,8 @@ function fetchRealMedias() {
 watch(props.state, () => {
     if (player.total() > 0) {
         fetchRealMedias();
+    } else {
+        medias.value = [];
     }
 });
 
@@ -142,9 +144,11 @@ function closePlayer() {
                     </div>
                 </template>
                 <div class="flex flex-col justify-center gap-2">
-                    <UPagination v-model="pagination.page" :page-count="pagination.limit"
+                    <div class="flex flex-row items-center gap-2 flex-wrap">
+                        <UPagination v-model="pagination.page" :page-count="pagination.limit"
                         @update:model-value="fetchRealMedias()" :total="player.total() ?? 0" />
-
+                        <UBadge :label="`Total: ${player.total() ?? 0}`" variant="soft"/>
+                    </div>
                     <div class="flex flex-col justify-center gap-2" v-for="media in medias">
                         <div class="flex flex-row items-center justify-between gap-2">
                             <div :class="state.current?.id === media.id ? `text-primary` : ``"
